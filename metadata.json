@@ -1,0 +1,10 @@
+{
+  "name": "MicroNIR QualiControl v6",
+  "description": "Advanced hardware orchestrator for MicroNIR modules with BLE and USB support (FTDI Protocol).",
+  "requestFramePermissions": [
+    "bluetooth",
+    "serial",
+    "usb"
+  ],
+  "majorCapabilities": []
+}
