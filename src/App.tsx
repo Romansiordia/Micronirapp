@@ -1139,8 +1139,12 @@ class MicroNIRApp {
         if (raw.length < 4) { this.log('Datos de espectro insuficientes.', 'log-warn'); return; }
 
         const spectrum = [];
+        // CORRECCIÓN DE EMPAQUETAMIENTO A BIG ENDIAN
+        // El MicroNIR envía el MSB primero (Byte de mayor peso), luego el LSB.
         for (let i = 0; i + 1 < raw.length; i += 2) {
-            spectrum.push((raw[i+1] << 8) | raw[i]);
+            // Antes: (raw[i+1] << 8) | raw[i] // PC Little Endian
+            // Ahora: (raw[i] << 8) | raw[i+1] // MCU Big Endian
+            spectrum.push((raw[i] << 8) | raw[i+1]);
         }
 
         if (spectrum.length === 0) return;
@@ -1460,7 +1464,7 @@ export default function App() {
 
                     <div className="chart-panel">
                         <div className="chart-hdr">
-                            <span className="chart-title">ESPECTRO NIR — 128 PÍXELES InGaAs · 16-BIT LITTLE ENDIAN</span>
+                            <span className="chart-title">ESPECTRO NIR — 128 PÍXELES InGaAs · 16-BIT BIG ENDIAN</span>
                             <div className="chart-btns">
                                 <button className="chip-btn" onClick={() => app()?.clearChart()}>Limpiar</button>
                                 <button className="chip-btn" onClick={() => app()?.exportCSV()}>CSV</button>
