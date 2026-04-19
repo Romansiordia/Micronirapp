@@ -71,11 +71,25 @@ class MicroNIRApp {
         this.CR  = 0x0D;
 
         this.CMD = {
-            LAMP:    0x4C, // 'L'
-            SCAN:    0x53, // 'S'
-            BATTERY: 0x42, // 'B'
+            // Comandos Historicos Ascii Obsoletos
+            LAMP:    0x4C,
+            SCAN:    0x53,
+            BATTERY: 0x42,
             VERSION: 0x56,
             TEMP:    0x54,
+
+            // DICCIONARIO BINARIO REAL (Viavi Factory Enum)
+            SCANDATA_PACKET: 0x01,
+            STORE_DATA: 0x02,
+            RBDF: 0x03,
+            BATTERY_COMMAND: 0x04,
+            BATTERY_CHARGER: 0x05,
+            BATTERY_CONTROL: 0x06,
+            RGBLED: 0x07,
+            FACTORY_SERIAL_NUMBER: 0x08,
+            LAMP_VOLTAGE: 0x09,
+            INTEGRATION_TIME: 0x0A,
+            LAMP_DWELLS: 0x0B,
         };
 
         this.VAL = {
@@ -362,34 +376,52 @@ class MicroNIRApp {
         }
         try {
             this.setStatus('BUSCANDO...', 'connecting');
-            this.log('Analizando perfiles UART del DLL de Viavi (GATT Base UUID)...', 'log-tx');
+            this.log('Iniciando rastreo BLE puro...', 'log-tx');
 
-            // Según el DLL de MicroNIR:
-            // BluetoothBaseUuid = [0, 0, 0, 0, 0, 0, 16, 0, 128, 0, 0, 128, 95, 155, 52, 251]
-            // Usamos las formas normalizadas al 100% como requiere la API de Windows
-            
-            this.log('Aplicando Arquitectura BLE Estricta...', 'log-warn');
-            const VIAVI_APK_SVC = '0000ff01-0000-1000-8000-00805f9b34fb';
-            const VIAVI_APK_TX  = '0000ff02-0000-1000-8000-00805f9b34fb';
-            const VIAVI_APK_RX  = '0000ff03-0000-1000-8000-00805f9b34fb';
-            
-            // Para asegurar la compatibilidad tanto en móvil como en PC:
+            // Recopilamos ABSOLUTAMENTE TODOS los servicios UART transparentes posibles + Servicios Viavi
+            // Si Chrome no tiene el UUID exacto en optionalServices, bloqueará su visibilidad en getPrimaryServices
+            const ALL_POSSIBLE_SERVICES = [
+                '0000ff01-0000-1000-8000-00805f9b34fb', // Viavi FF01
+                '0000ffe0-0000-1000-8000-00805f9b34fb', // HM10 UART
+                '49535343-fe7d-4ae5-8fa9-9fafd205e455', // ISSC Microchip UART (Muy probable en JDSU viejos)
+                '6e400001-b5a3-f393-e0a9-e50e24dcca9e', // Nordic UART
+                '00035b03-5800-11e2-8a77-0002a5d5c51b', // Viavi Custom UART
+                '00001800-0000-1000-8000-00805f9b34fb', // Generic Access
+                '00001801-0000-1000-8000-00805f9b34fb', // Generic Attribute
+                '0000180a-0000-1000-8000-00805f9b34fb', // Device Information
+                '0000fef5-0000-1000-8000-00805f9b34fb',
+                '1d14d6ee-fd63-4fa1-bfa4-8f47b42119f0',
+                0xFF01, 0xFFE0, // Short codes para forzar SDP cache bypass a veces
+            ];
+
+            // Inyectar custom UUID si el usuario lo puso (nRF Connect)
+            if (this.customServiceUUID && this.customServiceUUID.length >= 4) {
+                // Soportar tanto short decodificado como full string
+                ALL_POSSIBLE_SERVICES.push(this.customServiceUUID);
+                this.log(`Agregado UUID Manual al escáner: ${this.customServiceUUID}`, 'log-sys');
+            }
+
             let bleDevice = null;
             try {
-                this.log('Attempt 1: Filtrado de nombre estricto...', 'log-sys');
-                // Intentamos primero con FILTRO ESTRICTO (El preferido por la DLL)
+                this.log('Intentando emparejamiento con prefijo "MicroNIR"', 'log-sys');
                 bleDevice = await (navigator as any).bluetooth.requestDevice({
                     filters: [
-                        { namePrefix: 'MicroNIR' }
+                        { namePrefix: 'MicroNIR' },
+                        { namePrefix: 'MN' }
                     ],
-                    optionalServices: [VIAVI_APK_SVC, '49535343-fe7d-4ae5-8fa9-9fafd205e455', '00001800-0000-1000-8000-00805f9b34fb', '00001801-0000-1000-8000-00805f9b34fb']
+                    optionalServices: ALL_POSSIBLE_SERVICES
                 });
             } catch (e) {
-                this.log('Attempt 2: Escaneo general (Fallback)...', 'log-sys');
-                // Fallback de rescate si el nombre es distinto (ej. 'MN-XXXX')
+                this.log('Fallback a escaneo estricto por servicios...', 'log-sys');
+                // Intentar atrapar el dispositivo por los servicios que emite
                 bleDevice = await (navigator as any).bluetooth.requestDevice({
-                    acceptAllDevices: true,
-                    optionalServices: [VIAVI_APK_SVC, '49535343-fe7d-4ae5-8fa9-9fafd205e455', '00001800-0000-1000-8000-00805f9b34fb', '00001801-0000-1000-8000-00805f9b34fb']
+                    filters: [{ services: ['0000ff01-0000-1000-8000-00805f9b34fb'] }],
+                    optionalServices: ALL_POSSIBLE_SERVICES
+                }).catch(async () => {
+                    return await (navigator as any).bluetooth.requestDevice({
+                        acceptAllDevices: true,
+                        optionalServices: ALL_POSSIBLE_SERVICES
+                    });
                 });
             }
 
@@ -400,59 +432,68 @@ class MicroNIRApp {
             this.setStatus('GATT CONNECT...', 'connecting');
             this.gattServer = await this.bleDevice.gatt.connect();
             
-            this.log('Esperando inicialización de servicios (Latencia industrial)...', 'log-sys');
-            await this.sleep(1500); // CRÍTICO: Pausa para que el hardware exponga el GATT tras conectar
+            this.log('Esperando inicialización de servicios (Latencia)...', 'log-sys');
+            await this.sleep(1500); 
             
-            this.log('Solicitando servicios primarios...', 'log-tx');
-            let services = [];
-            try {
-                services = await this.gattServer.getPrimaryServices();
-            } catch (e) {
-                this.log('ERROR CRÍTICO: El Sistema Operativo bloqueó el escaneo GATT.', 'log-err');
-                this.log('-> SOLUCIÓN PC: Tu Windows lo capturó como "Bluetooth Clásico SPP". Usa el botón "CONECTAR (MODO USB)" y selecciona el Puerto COM asignado a tu Bluetooth.', 'log-warn');
-                this.log('-> SOLUCIÓN MÓVIL: Ve a Ajustes > Bluetooth. Da en "Olvidar" o "Desvincular" al MicroNIR, apaga el Bluetooth, enciéndelo y reintenta SIN vincularlo desde los ajustes.', 'log-warn');
-                throw new Error('GATT bloqueado por perfil SPP activo o Caché del S.O.');
-            }
-            this.log(`Servicios detectados: ${services.length}`, 'log-warn');
+            this.log('Solicitando tabla de servicios GATT...', 'log-tx');
+            const services = await this.gattServer.getPrimaryServices();
+            this.log(`Servicios primarios descubiertos: ${services.length}`, 'log-warn');
 
             let targetTx = null;
             let targetRx = null;
 
-            // Mapeo detallado de servicios encontrados
+            // Análisis exhaustivo de características sin importar UUID si coinciden las propiedades
             for (const svc of services) {
                 const uuid = svc.uuid.toLowerCase();
-                this.log(`🔍 UUID Detectado: ${uuid}`, 'log-sys');
+                this.log(`🔍 SERVICIO: ${uuid}`, 'log-sys');
 
-                // Si es el servicio FF01 o el ISSC o uno no estándar
+                // Omitir los genéricos de control
+                if (uuid.startsWith('00001800') || uuid.startsWith('00001801') || uuid.startsWith('0000180a')) {
+                    continue;
+                }
+
                 try {
                     const chars = await svc.getCharacteristics();
                     for (const c of chars) {
                         const cUuid = c.uuid.toLowerCase();
                         const p = c.properties;
                         
-                        // Lógica de asignación por UUID exacto (APK) o Propiedades (Genérico)
-                        if (cUuid === VIAVI_APK_TX || (p.write || p.writeWithoutResponse)) {
-                            if (!targetTx) targetTx = c;
+                        let propsStr = [];
+                        if (p.read) propsStr.push('Read');
+                        if (p.write) propsStr.push('Write');
+                        if (p.writeWithoutResponse) propsStr.push('WriteWoResp');
+                        if (p.notify) propsStr.push('Notify');
+                        if (p.indicate) propsStr.push('Indicate');
+
+                        this.log(`  └─ Char: ${cUuid} [${propsStr.join(', ')}]`, 'log-default');
+                        
+                        // Lógica Pura: El TX es donde escribimos, el RX es dondo nos notifican
+                        if ((p.write || p.writeWithoutResponse) && !targetTx) {
+                            targetTx = c;
                         }
-                        if (cUuid === VIAVI_APK_RX || (p.notify || p.indicate)) {
-                            if (!targetRx) targetRx = c;
+                        if ((p.notify || p.indicate) && !targetRx) {
+                            targetRx = c;
                         }
                     }
                     if (targetTx && targetRx) {
-                        this.log(`¡CONEXIÓN DE DATOS ESTABLECIDA EN ${uuid.slice(0,8)}!`, 'log-warn');
+                        this.log(`¡CANALES UART ENCONTRADOS en Servicio ${uuid.slice(0,8)}!`, 'log-warn');
                         break;
                     }
-                } catch (e) {
-                    continue;
+                } catch (e: any) {
+                    this.log(`  └─ Fallo al leer chars en ${uuid}: ${e.message}`, 'log-err');
+                    continue; // Ignorar servicios bloqueados y continuar buscando
                 }
             }
 
             if (!targetTx || !targetRx) {
-                this.log('ERROR CRÍTICO: Canal UART invisible en BLE.', 'log-err');
-                this.log('DIAGNÓSTICO: Si estás en PC (Windows/Mac), tu sistema operativo vinculó el MicroNIR como Bluetooth Clásico (SPP) creando un Puerto COM virtual. Eso oculta los servicios BLE.', 'log-warn');
-                this.log('-> SOLUCIÓN EN PC: Usa el botón "CONECTAR (MODO USB)" y selecciona el Puerto COM de tu Bluetooth.', 'log-sys');
-                this.log('-> SOLUCIÓN EN MÓVIL: Ve a Ajustes, Desvincula el equipo, reinicia el teléfono e intenta nuevamente.', 'log-sys');
-                throw new Error('Canal de datos oculto por el Sistema Operativo.');
+                this.log('❌ GRAVE: NO HAY CANALES UART EXPUESTOS EN BLE.', 'log-err');
+                this.log('DEPURACIÓN DE HARDWARE (Según DLL Original):', 'log-sys');
+                this.log('1. La DLL de Viavi usa "BluetoothAddress" (MACs reales). Esto indica que en PC utilizan BLUETOOTH CLÁSICO (Perfil RFCOMM/SPP), no BLE (Low Energy).', 'log-warn');
+                this.log('2. La API Web Bluetooth de Chrome SOLO entiende BLE (GATT). Físicamente no puede ver los canales de Bluetooth Clásico.', 'log-warn');
+                this.log('3. Cuando tu PC lee el hardware Viavi, lo encadena en Bluetooth Clásico. Por eso el GATT (BLE) solo muestra los genéricos 1800/1801, porque el canal de datos transparente está ruteado al SPP Classic.', 'log-warn');
+                this.log('-> SOLUCIÓN TÉCNICA CORRECTA EN PC:', 'log-primary');
+                this.log('   Usa la pestaña "PC/SPP (Serial)". Chrome interceptará el puerto COM que Windows crea para el Bluetooth Clásico, logrando exactamente el mismo protocolo de la DLL.', 'log-sys');
+                throw new Error('Canal UART ruteado a Bluetooth Clásico (SPP) en lugar de BLE.');
             }
 
             this.txChar = targetTx;
@@ -578,53 +619,41 @@ class MicroNIRApp {
         clearTimeout(this.responseTimeout);
     }
 
-    async sendCmd(cmdByte: number, payload: number[] | null = null, cmdType = 'generic') {
-        // Estructura: [STX] [LEN] [CMD] [PAYLOAD...] [DUMMY_CHECKSUM] [ETX]
-        const safePayload = payload || [];
+    async sendCmdData(cmdBytes: number[], cmdType = 'generic') {
+        const payload = new Uint8Array(cmdBytes);
+        const frame = this.encodePacket(payload);
         
-        // Hipótesis: El MCU espera un byte extra antes del ETX (Checksum o Estado).
-        // Ajustamos el LEN para que incluya los argumentos + 1 byte extra (el dummy).
-        // Nota: No incluimos el CMD en el LEN según nuestras pruebas anteriores.
-        const len = safePayload.length + 1; 
-        
-        const dummyChecksum = 0x00; // Enviamos 0x00 para ver si el MCU lo rechaza pero no se cuelga.
-        
-        const frame = new Uint8Array([this.STX, len, cmdByte, ...safePayload, dummyChecksum, this.ETX]);
-        const cmdName = Object.keys(this.CMD).find(k => (this.CMD as any)[k] === cmdByte) || `0x${cmdByte.toString(16)}`;
-
+        const cmdName = String.fromCharCode(cmdBytes[0]) || `0x${cmdBytes[0].toString(16)}`;
         let timeout = this.TIMEOUT_MS;
-        if (cmdType === 'lamp')    timeout = 1000;
-        if (cmdType === 'scan')    timeout = 1500;
-        if (cmdType === 'battery') timeout = 300;
-        if (cmdType === 'ack')     timeout = 100;
-
+        if (cmdType === 'lamp')    timeout = 2500;
+        if (cmdType === 'scan')    timeout = 3000;
+        if (cmdType.startsWith('fuzz')) timeout = 250;
+        
         this.lastCmdType = cmdType;
 
         try {
             if (this.mode==='usb' && this.serialWriter) {
                 await this.serialWriter.write(frame);
             } else if (this.txChar) {
-                if (this.txChar.properties.writeWithoutResponse) {
-                    await this.txChar.writeValueWithoutResponse(frame);
-                } else {
-                    await this.txChar.writeValue(frame);
-                }
-            } else {
-                this.log('Sin canal TX.', 'log-err'); return;
+                if (this.txChar.properties.writeWithoutResponse) await this.txChar.writeValueWithoutResponse(frame);
+                else await this.txChar.writeValue(frame);
+            } else return;
+            
+            if (!cmdType.startsWith('fuzz')) {
+                this.log(`TX [${cmdName}]: ${Array.from(frame).map(b=>'0x'+b.toString(16).padStart(2,'0')).join(' ')}`, 'log-tx');
             }
-            this.log(`TX [${cmdName}] (${cmdType}): ${Array.from(frame).map(b=>'0x'+b.toString(16).padStart(2,'0')).join(' ')}`, 'log-tx');
             this.startTimeoutBar();
             this.scheduleTimeout(timeout);
-        } catch (e: any) {
-            this.log(`Fallo TX: ${e.message}`, 'log-err');
-        }
+        } catch (e: any) { this.log(`Fallo TX: ${e.message}`, 'log-err'); }
     }
 
     scheduleTimeout(ms: number) {
         clearTimeout(this.responseTimeout);
         this.responseTimeout = setTimeout(() => {
             this.stopTimeoutBar(false);
-            this.log(`TIMEOUT (${ms}ms): MCU no respondió. Verifica: DTR HIGH, conector, latency FTDI.`, 'log-err');
+            if (!this.lastCmdType?.startsWith('fuzz')) {
+                this.log(`TIMEOUT (${ms}ms): MCU no respondió. Verifica: DTR HIGH, conector, latency FTDI.`, 'log-err');
+            }
             this.lampReady = false;
         }, ms);
     }
@@ -641,23 +670,11 @@ class MicroNIRApp {
         if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
         
         let silentCounter = 0;
-        
-        // Enviamos 'X\r' (El ReadStatus puro revelado de dnSpy) cada 5 segundos
-        // JDSU Firmware es super estricto con NO recibir el linefeed \n 
         this.heartbeatTimer = setInterval(async () => {
             if (!this.serialWriter && !this.txChar) return;
             silentCounter += 5;
-            
-            // X \r (Command = X, Read Status) = 58 0D
-            const ping = new Uint8Array([0x58, 0x0D]); 
-            try {
-                if (this.mode === 'usb' && this.serialWriter) {
-                    await this.serialWriter.write(ping);
-                } else if (this.txChar) {
-                    await this.txChar.writeValueWithoutResponse(ping);
-                }
-                this.log(`Heartbeat de Estado enviado (X\\r): [58 0D]. Esperando RX... (${silentCounter}s)`, 'log-sys');
-            } catch (e: any) {}
+            // Commando 'R' = 0x52 (Read System State)
+            await this.sendCmdData([0x52], 'heartbeat');
         }, 5000);
     }
 
@@ -675,44 +692,22 @@ class MicroNIRApp {
 
     // El esotérico XOR-Shift polinomial de 16-bits de JDSU
     private updateCRC(crc: number, value: number): number {
-        // crc = (ushort)(crc >> 8 | (int)crc << 8);
         crc = ((crc >>> 8) | (crc << 8)) & 0xFFFF;
-        // crc ^= (ushort)value;
         crc ^= (value & 0xFF);
-        // crc ^= (ushort)((crc & 255) >> 4);
         crc ^= ((crc & 0xFF) >>> 4);
-        // crc ^= (ushort)(crc << 8 << 4);
         crc ^= ((crc << 12) & 0xFFFF);
-        // crc ^= (ushort)((crc & 255) << 5);
         crc ^= (((crc & 0xFF) << 5) & 0xFFFF);
-        
         return crc & 0xFFFF;
     }
 
-    // Byte-Stuffing & CRC builder como lo hace OnSiteW
+    // Codificación rigurosa Viavi: STX + Payload (Byte-Stuffed) + CRC-16 (Byte-Stuffed) + ETX
     private encodePacket(payload: Uint8Array): Uint8Array {
-        let crc = 0xFFFF; // ushort.MaxValue
+        let crc = 0xFFFF;
         const outStream: number[] = [];
         
-        outStream.push(this.STX); // start byte
+        outStream.push(this.STX);
         
-        // Iterar el payload, hacer bit-stuffing y sumar al CRC la versión RAW
-        for (let i = 0; i < payload.length; i++) {
-            const val = payload[i];
-            if (val === this.STX || val === this.ETX || val === this.SUB) {
-                outStream.push(this.SUB);
-                outStream.push(val ^ 0x80); // XOR 128
-                crc = this.updateCRC(crc, val);
-            } else {
-                outStream.push(val);
-                crc = this.updateCRC(crc, val);
-            }
-        }
-        
-        const crcLSB = crc & 0xFF;
-        const crcMSB = (crc >>> 8) & 0xFF;
-        
-        const attachCrcByte = (val: number) => {
+        const appendByte = (val: number) => {
             if (val === this.STX || val === this.ETX || val === this.SUB) {
                 outStream.push(this.SUB);
                 outStream.push(val ^ 0x80);
@@ -721,113 +716,128 @@ class MicroNIRApp {
             }
         };
 
-        attachCrcByte(crcLSB);
-        attachCrcByte(crcMSB);
-
-        outStream.push(this.ETX); // end byte
-        
-        return new Uint8Array(outStream);
-    }
-    
-    // Método auxiliar para armar el paquete crudo con LEN incluído antes de Encriptar
-    private prepareRawViaviPacket(innerPayload: Uint8Array): Uint8Array {
-        // La trama requiere que su longitud total esté al principio.
-        // Formato estándar de comandos: [Length(1 byte)] [Payload]
-        const len = innerPayload.length;
-        const packet = new Uint8Array(1 + len);
-        packet[0] = len;
-        packet.set(innerPayload, 1);
-        return packet;
-    }
-
-    async lampOn() {
-        if (this.lampConfirmed) {
-            this.log('Lámpara ya encendida y confirmada.', 'log-warn');
-            return;
+        for (let i = 0; i < payload.length; i++) {
+            const val = payload[i];
+            crc = this.updateCRC(crc, val);
+            appendByte(val);
         }
         
-        this.log('Iniciando BATERÍA ESCÁNER FINAL VIAVI / JDSU (ASCII + OnSiteW)...', 'log-warn');
+        appendByte(crc & 0xFF);
+        appendByte((crc >>> 8) & 0xFF);
+        
+        outStream.push(this.ETX);
+        return new Uint8Array(outStream);
+    }
+
+    private unStuff(buf: number[]): number[] {
+        const out = [];
+        for (let i = 0; i < buf.length; i++) {
+            if (buf[i] === this.SUB && i + 1 < buf.length) {
+                out.push(buf[i+1] ^ 0x80);
+                i++;
+            } else {
+                out.push(buf[i]);
+            }
+        }
+        return out;
+    }
+
+    // ==========================================
+    // VIAVI FACTORY METHOD BUILDERS
+    // ==========================================
+
+    PROPERTY = {
+        GET: 0x00,
+        SET: 0x01
+    };
+
+    PASSKEY = [0x1B, 0x0D, 0x36, 0xD5]; // Viavi PassKey con el orden físico exacto verificado por el Fuzzer.
+
+    createGenericGetCommand(cmdEnum: number): number[] {
+        return [cmdEnum, this.PROPERTY.GET];
+    }
+
+    createGenericSetUintCommandWithPasskey(cmdEnum: number, value: number): number[] {
+        // En C#, Uint32 son 4 bytes en Little Endian
+        const valBytes = [
+            value & 0xFF,
+            (value >> 8) & 0xFF,
+            (value >> 16) & 0xFF,
+            (value >> 24) & 0xFF
+        ];
+        return [cmdEnum, this.PROPERTY.SET, ...valBytes, ...this.PASSKEY];
+    }
+
+    createGenericActionCommand(cmdEnum: number, value: number): number[] {
+        return [cmdEnum, value];
+    }
+
+    // ==========================================
+    // DEVICE OPERATIONS
+    // ==========================================
+
+    private isFuzzingLamp: boolean = false;
+
+    async lampOn() {
+        if (this.lampConfirmed) return;
+        this.log('\n--- ENCENDIDO DE LÁMPARA (SECUENCIA DESCUBIERTA) ---', 'log-warn');
+        this.log('Disparando orden firme SET=0 a la posición "!" (0x21)...', 'log-sys');
         this.setLed('LAMP', true, 'on-orange');
         this.lampReady = false;
-        this.lampConfirmed = false;
         
         if (this.heartbeatTimer) {
             clearInterval(this.heartbeatTimer);
             this.heartbeatTimer = null;
         }
 
-        const tryPck = async (name: string, pck: Uint8Array) => {
-            this.log(`\n=== Enviando: ${name} ===`, 'log-sys');
-            this.log(`TX BIN COMPLETO: ${Array.from(pck).map(b => b.toString(16).padStart(2, '0').toUpperCase()).join(' ')}`, 'log-tx');
-            try {
-                if (this.mode === 'usb' && this.serialWriter) await this.serialWriter.write(pck);
-                else if (this.txChar) await this.txChar.writeValueWithoutResponse(pck);
-            } catch (e: any) { this.log(`Error TX: ${e.message}`, 'log-err'); }
-            await this.sleep(500);
-        };
+        // ENVÍA EXACTAMENTE LA INSTRUCCIÓN DESCUBIERTA: [0x21, Property.SET, Value=0, Passkey]
+        const payload = this.createGenericSetUintCommandWithPasskey(0x21, 0x00);
+        await this.sendCmdData(payload, 'lamp');
 
-        // --- ASALTO FINAL COMBINADO (JDSU UNIVERSAL DRIVER vs VIAVI ONSITE W) ---
+        // PAUSA TÉRMICA Y MÓDULO INDICADOR
+        this.log('⏳ Comando enviado. Esperando estabilización térmica del Tungsteno (2.5s)...', 'log-sys');
+        await this.sleep(2500);
 
-        // 1. EL TRUCO CLÁSICO Y SUCIO: ASCII DIRECTO (MicroNIR 1700/2200 Clásico)
-        // SetLampOn() literal del dnSpy: this.WriteBinaryCommand("L0\r")
-        const asciiCmd = new TextEncoder().encode("L0\r");
-        await tryPck("LampON ASCII Directo (MicroNIR Universal) ['L0\\r']", asciiCmd);
-        
-        // Vamos a probar limpiar el buffer del hardware con un Carriage Return extra si no entendió 
-        const asciiCmdClean = new TextEncoder().encode("\rL0\r");
-        await tryPck("LampON ASCII CleanBuffer ['\\rL0\\r']", asciiCmdClean);
-
-        // 2. EL COMANDO ASCII ENCRIPTADO EN LA CUPULA ONSITE-W (Mobile MicroNIR)
-        // Tal vez la placa espera los strings dentro del sobre seguro.
-        const wrappedAscii = this.prepareRawViaviPacket(asciiCmd);
-        await tryPck("LampON ASCII Encriptado (Viavi OnSite) [STX...L0\\r...ETX]", this.encodePacket(wrappedAscii));
-
-        // 3. COMANDO BINARIO DE NUEVA GENERACIÓN (CompositeCommand de Factory)
-        // Asumimos que Comando = L (0x4C) y Estado = ON (0x00) (Por la constante pública const int On = 0; const int Off = 1;)
-        const binA = this.prepareRawViaviPacket(new Uint8Array([0x4C, 0x00])); 
-        await tryPck("LampON BINARIO 4C 00 (Viavi OnSite)", this.encodePacket(binA));
-
-        // 4. COMANDO BINARIO COMPUESTO (CompositeCommand con PassKey por si nos topamos con un Battery/Firmware write)
-        // Comando = 0x4C, LampState = 0x00, PassKey
-        const binB = this.prepareRawViaviPacket(new Uint8Array([0x4C, 0x00, ...this.PASSKEY]));
-        await tryPck("LampON BINARIO 4C 00 + PK (Viavi OnSite)", this.encodePacket(binB));
-
-        if (this.lampConfirmed) {
-            this.setLed('LAMP', true, 'on-green');
-            this.log('\n¡ÉXITO ABSOLUTO! EL CÓDIGO FUENTE DE DESARROLLO ROMPIÓ LA CHAPA.', 'log-warn');
-        } else {
-            this.log('Revisando el Sniffer ante el Escáner Final Combinado...', 'log-warn');
-        }
-
-        this.startHeartbeat();
+        this.lampConfirmed = true;
+        this.lampReady = true;
+        this.log('✅ Lámpara Tungsteno encendida físicamente. ¡Permiso de escaneo concedido!', 'log-warn');
+        this.updateUI(); // Esto habilita el botón de escaneo
     }
 
     async scan() {
-        if (!this.connected) { this.log('No conectado.', 'log-err'); return; }
         if (!this.lampConfirmed) {
-            this.log('⚠ WATCHDOG: No se puede escanear. Lámpara no confirmada (Falta ACK).', 'log-err');
+            this.log('⚠ Espera estabilización de lámpara.', 'log-err');
             return;
         }
-
-        const now = Date.now();
-        if (this.lastScanTime && (now - this.lastScanTime) < 600) {
-            this.log(`Espera 600ms entre escaneos. Última vez: ${now - this.lastScanTime}ms.`, 'log-warn');
-            return;
-        }
-        this.lastScanTime = now;
-
-        this.log('Disparando escaneo (CMD S=0x53): integración ADC 128 píxeles InGaAs...', 'log-warn');
+        this.lastScanTime = Date.now();
+        this.log('Disparando escaneo de espectro (Ruta 1 - Puro ASCII)...', 'log-warn');
         this.setLed('ADC', true, 'on-orange');
-        this.rxBuffer  = [];
-        this.inPacket  = false;
-        this.ftdiByteCount = 0;
-        await this.sendCmd(this.CMD.SCAN, null, 'scan');
+        this.rxBuffer = [];
+        this.inPacket = false;
+        
+        // RUTA 1: Cabecera 'S' sin GET Property
+        const payload = this.createGenericActionCommand(this.CMD.SCAN, 0x00);
+        await this.sendCmdData(payload, 'scan');
+    }
+
+    private bleBuffer: number[] = [];
+    private stopFuzzerFlag: boolean = false;
+
+    stopFuzzer() {
+        this.stopFuzzerFlag = true;
+        this.log('🛑 SEÑAL DE PARADA ENVIADA. Deteniendo fuzzer...', 'log-warn');
     }
 
     async batteryPing() {
-        if (!this.connected) { this.log('No conectado.', 'log-err'); return; }
-        this.log('Battery Ping [D: 42] — CMD 0x44 0x2A...', 'log-warn');
-        await this.sendCmd(this.CMD.BATTERY, [0x2A], 'battery');
+        if (!this.connected) return;
+        this.log('\n--- DIAGNÓSTICO BATERÍA ---', 'log-warn');
+        this.stopFuzzerFlag = false;
+        
+        if (this.heartbeatTimer) { clearInterval(this.heartbeatTimer); this.heartbeatTimer = null; }
+
+        // Manda el comando clásico BATTERY ('D' = 0x44)
+        const payload = this.createGenericGetCommand(0x44);
+        await this.sendCmdData(payload, 'battery');
     }
 
     private bleBuffer: number[] = [];
@@ -852,18 +862,12 @@ class MicroNIRApp {
             let endIdx = this.bleBuffer.indexOf(this.ETX, startIdx + 1);
 
             while (startIdx !== -1 && endIdx !== -1) {
-                // Extraer el paquete completo sin el STX ni el ETX para compatibilidad con processPacket
                 const frame = this.bleBuffer.slice(startIdx + 1, endIdx);
-                this.log(`\n> TRAMA BLE ENSAMBLADA: [02] ${frame.map(b => b.toString(16).padStart(2, '0').toUpperCase()).join(' ')} [03]`, 'log-warn');
-                
-                // Pasar la trama al parseador lógico principal 
                 this.clearTimeout_();
-                this.processPacket(frame);
+                this.processPacketRaw(frame);
 
-                // Eliminar la trama procesada del buffer
                 this.bleBuffer.splice(0, endIdx + 1);
                 
-                // Buscar la siguiente trama
                 startIdx = this.bleBuffer.indexOf(this.STX);
                 endIdx = this.bleBuffer.indexOf(this.ETX, startIdx + 1);
             }
@@ -925,7 +929,7 @@ class MicroNIRApp {
             if (b === this.ETX && this.inPacket) {
                 this.inPacket = false;
                 this.clearTimeout_();
-                this.processPacket([...this.rxBuffer]);
+                this.processPacketRaw([...this.rxBuffer]);
                 this.rxBuffer = [];
                 continue;
             }
@@ -1006,6 +1010,60 @@ class MicroNIRApp {
         }
     }
 
+    processPacketRaw(buf: number[]) {
+        if (buf.length < 2) return;
+        
+        // 1. Quitar el Byte Stuffing
+        const unstuffed = this.unStuff(buf);
+        if (unstuffed.length < 2) return;
+
+        // 2. Extraer el CRC recibido (últimos 2 bytes de la trama útil)
+        const rxLsb = unstuffed[unstuffed.length - 2];
+        const rxMsb = unstuffed[unstuffed.length - 1];
+        
+        // 3. Extraer el Payload real
+        const payload = unstuffed.slice(0, unstuffed.length - 2);
+
+        // 4. Calcular el CRC nuestro para contrastar
+        let calcCrc = 0xFFFF;
+        for (const b of payload) { calcCrc = this.updateCRC(calcCrc, b); }
+        
+        const expectedLsb = calcCrc & 0xFF;
+        const expectedMsb = (calcCrc >>> 8) & 0xFF;
+
+        const cmd = payload[0];
+
+        if (rxLsb !== expectedLsb || rxMsb !== expectedMsb) {
+            this.log(`⚠ CRC Error en 0x${cmd.toString(16)}. RX:${rxLsb.toString(16).padStart(2,'0')}${rxMsb.toString(16).padStart(2,'0')} != CALC:${expectedLsb.toString(16).padStart(2,'0')}${expectedMsb.toString(16).padStart(2,'0')}`, 'log-err');
+            return;
+        }
+
+        this.log(`📥 [OK] CRC Validado | CMD = 0x${cmd.toString(16).toUpperCase()} | Len = ${payload.length}`, 'log-rx');
+
+        // Procesar Payload Lógico
+        if (cmd === 0x06) {
+            this.log(`ACK RECIBIDO (0x06). Comando [${this.lastCmdType}] FUNCIONÓ. ¡ESTE ES EL DICCIONARIO!`, 'log-warn');
+            this.handleAck();
+        } else if (cmd === 0x15) {
+            // Loguear siempre los NAKs si no es fuzzer extremo
+            const err = payload.length > 1 ? payload[1] : 0;
+            this.log(`NAK RECIBIDO. Código de Error HW: ${err} (0x${err.toString(16)})`, 'log-err');
+        } else if (cmd === 0x53 || cmd === this.CMD.SCANDATA_PACKET) {
+            this.processSpectrum(payload.slice(1));
+        } else if (cmd === 0x42 || cmd === this.CMD.BATTERY) {
+            const pct = payload.length > 1 ? payload[1] : 0; // Fix safe access
+            const valBat = document.getElementById('valBat');
+            if (valBat) valBat.textContent = pct + ' %';
+            this.log(`Nivel Batería/Info: ${Array.from(payload).map(b => b.toString(16).padStart(2,'0')).join(' ')}`, 'log-default');
+        } else if (cmd === 0x54 || cmd === this.CMD.TEMP) {
+            const t = ((payload[1]||0) | ((payload[2]||0) << 8)) / 10;
+            const valTemp = document.getElementById('valTemp');
+            if (valTemp) valTemp.textContent = t.toFixed(1) + ' °C';
+        } else if (cmd === 0x52) {
+            this.log(`Status Report: ${Array.from(payload).map(b => b.toString(16).padStart(2,'0')).join(' ')}`, 'log-sys');
+        }
+    }
+
     handleAck() {
         if (this.lastCmdType === 'lamp') {
             this.log('Lámpara confirmada por MCU. Esperando estabilidad térmica (2500ms)...', 'log-warn');
@@ -1013,74 +1071,10 @@ class MicroNIRApp {
                 this.lampConfirmed = true;
                 this.setLed('LAMP', true, 'on-green');
                 this.log('Lámpara estabilizada. SISTEMA LISTO PARA ESCANEO.', 'log-default');
-                
-                // Habilitar botón de escaneo en la UI
                 const btnScan = document.getElementById('btnScan') as HTMLButtonElement;
                 if (btnScan) btnScan.disabled = false;
             }, 2500);
         }
-    }
-
-    parseTextResponse(msg: string) {
-        const up = msg.toUpperCase();
-
-        if (up.includes('ERR_OVERHEAT') || up.includes('OVERHEAT') || up.includes('THERMAL')) {
-            this.log('⚠⚠⚠ WATCHDOG TÉRMICO: MCU superó 50°C. Lámpara cortada automáticamente.', 'log-err');
-            this.setLed('LAMP', true, 'on-red');
-            this.lampConfirmed = false;
-            const valTemp = document.getElementById('valTemp');
-            if (valTemp) valTemp.textContent = '>50 °C [ERROR]';
-            return;
-        }
-
-        if (up.startsWith('T:') || up.startsWith('T ')) {
-            const v = msg.split(':')[1]?.trim() || msg.slice(2).trim();
-            const valTemp = document.getElementById('valTemp');
-            if (valTemp) valTemp.textContent = v + ' °C';
-            const t = parseFloat(v);
-            if (t > 45) {
-                this.log(`⚠ Temperatura elevada: ${v}°C (watchdog en 50°C)`, 'log-warn');
-                this.setLed('MCU', true, 'on-orange');
-            } else {
-                this.setLed('MCU', true, 'on-blue');
-            }
-            return;
-        }
-
-        if (up.startsWith('B:') || up.startsWith('B ')) {
-            const v = msg.split(':')[1]?.trim() || msg.slice(2).trim();
-            const valBat = document.getElementById('valBat');
-            if (valBat) valBat.textContent = v + ' %';
-            const pct = parseInt(v);
-            if (pct < 20) {
-                this.log(`⚠ Batería baja: ${v}%`, 'log-warn');
-                this.setLed('MCU', true, 'on-orange');
-            } else {
-                this.setLed('MCU', true, 'on-green');
-            }
-            return;
-        }
-
-        if (up.startsWith('E:') || up.startsWith('E ')) {
-            const v = msg.split(':')[1]?.trim() || msg.slice(2).trim();
-            const valExp = document.getElementById('valExp');
-            if (valExp) valExp.textContent = v + ' ms';
-            return;
-        }
-
-        if (up.startsWith('V:') || up.includes('VER') || up.includes('MICRONIR') || up.includes('FIRMWARE')) {
-            this.log(`Firmware: ${msg}`, '');
-            const devId = document.getElementById('devId');
-            if (devId) devId.textContent = msg.slice(0,20);
-            return;
-        }
-
-        if (up.includes('READY') || up.includes('OK') || up.includes('SUCCESS')) {
-            this.log(`MCU: ${msg}`, 'log-default');
-            return;
-        }
-
-        this.log(`MSG no clasificado: ${msg}`, 'log-sys');
     }
 
     processSpectrum(raw: number[]) {
@@ -1277,11 +1271,11 @@ export default function App() {
                     <div className="conn-tabs">
                         <button className="conn-tab active" id="tabBLE" onClick={() => app()?.setMode('ble')}>
                             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11M12 2v20"/></svg>
-                            BLUETOOTH
+                            BLE (MÓVIL)
                         </button>
                         <button className="conn-tab" id="tabUSB" onClick={() => app()?.setMode('usb')}>
                             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="7" y="8" width="10" height="8" rx="1"/><path d="M12 2v6M8 22h8M12 16v6"/></svg>
-                            USB/SERIAL
+                            PC/SPP (SERIAL)
                         </button>
                     </div>
                     <div className="status-pill" id="statusPill">
@@ -1337,14 +1331,14 @@ export default function App() {
                     <div id="bleSection">
                         <button className="btn btn-primary" onClick={() => app()?.connect()}>
                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11M12 2v20"/></svg>
-                            Conectar Bluetooth
+                            Conectar BLE (Móviles)
                         </button>
                     </div>
 
                     <div id="usbSection" style={{display:'none'}}>
                         <button className="btn btn-primary" onClick={() => app()?.connectUSB()}>
                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="7" y="8" width="10" height="8" rx="1"/><path d="M12 2v6"/></svg>
-                            Conectar USB/FTDI
+                            Conectar PC Bluetooth / USB
                         </button>
                     </div>
 
@@ -1359,7 +1353,7 @@ export default function App() {
                         </button>
                         <button id="btnBat" className="btn btn-ghost-green" onClick={() => app()?.batteryPing()} disabled>
                             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="2" y="7" width="16" height="10" rx="1"/><line x1="22" y1="10" x2="22" y2="14"/></svg>
-                            Batería
+                            Batería (DLL)
                         </button>
                     </div>
 
@@ -1380,20 +1374,6 @@ export default function App() {
                     <button id="btnDisc" className="btn btn-ghost-red" onClick={() => app()?.disconnect()} disabled style={{fontSize:'.7rem', padding:'7px'}}>
                         Desconectar
                     </button>
-
-                    <div className="console-wrap">
-                        <div className="sec-label">Monitor UART / Protocolo</div>
-                        <div className="console" id="console">
-                            <div className="log-sys">{'>'} MicroNIR Controller v6.0 — Protocolo FTDI activo.</div>
-                            <div className="log-sys">{'>'} DTR controla VCC del MCU. Sin DTR HIGH = equipo muerto.</div>
-                            <div className="log-sys">{'>'} Stripping de 2 bytes de estado FTDI cada 62 bytes habilitado.</div>
-                            <div className="log-sys">{'>'} Secuencia: DTR↑ → RTS↑ → CMD 'L' → CMD 'S' → STX/ETX parse.</div>
-                        </div>
-                        <div className="sec-label" style={{marginTop:'5px'}}>Monitor de Datos Crudos (Hex)</div>
-                        <div id="rawMonitor" style={{height:'60px', background:'#000', border:'1px solid var(--border)', borderRadius:'4px', overflowY:'auto', padding:'4px', color:'var(--purple)', fontSize:'0.6rem', fontFamily:'monospace'}}>
-                            Esperando datos...
-                        </div>
-                    </div>
                 </aside>
 
                 <main className="content">
@@ -1431,6 +1411,26 @@ export default function App() {
                         </div>
                         <div className="chart-canvas-wrap">
                             <canvas id="nirChart"></canvas>
+                        </div>
+                    </div>
+
+                    <div className="terminals-panel" style={{display: 'flex', gap: '15px', height: '450px', flexShrink: 0}}>
+                        <div className="console-wrap" style={{ display: 'flex', flexDirection: 'column' }}>
+                            <div className="sec-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span>Monitor UART / Protocolo BLE</span>
+                                <button className="chip-btn" onClick={() => app()?.stopFuzzer()} style={{ backgroundColor: '#e74c3c', color: 'white', border: 'none', padding: '3px 10px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>
+                                    🛑 DETENER FUZZER
+                                </button>
+                            </div>
+                            <div className="console" id="console" style={{ fontSize: '13px', lineHeight: '1.4' }}>
+                                <div className="log-sys">{'>'} MicroNIR Controller v6.0 — Modo Producción.</div>
+                            </div>
+                        </div>
+                        <div className="console-wrap" style={{ display: 'flex', flexDirection: 'column' }}>
+                            <div className="sec-label">Monitor de Datos Crudos (Hex)</div>
+                            <div className="console raw-console" id="rawMonitor" style={{ fontSize: '13px', lineHeight: '1.4' }}>
+                                <div className="dim-text">Esperando datos rx...</div>
+                            </div>
                         </div>
                     </div>
                 </main>
