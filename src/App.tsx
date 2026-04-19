@@ -260,15 +260,11 @@ class MicroNIRApp {
 
     updateUI(on: boolean) {
         this.connected = on;
-        ['btnWarm','btnBat','btnDisc'].forEach(id => {
+        ['btnWarm','btnBat','btnDisc','btnScan'].forEach(id => {
             const el = document.getElementById(id) as HTMLButtonElement;
             if (el) el.disabled = !on;
         });
         
-        // El botón de escaneo se habilita SOLO cuando se recibe el ACK de la lámpara
-        const btnScan = document.getElementById('btnScan') as HTMLButtonElement;
-        if (btnScan) btnScan.disabled = true;
-
         const valMode = document.getElementById('valMode');
         if (valMode) valMode.textContent = on ? this.mode.toUpperCase() : '—';
     }
@@ -805,19 +801,48 @@ class MicroNIRApp {
     }
 
     async scan() {
-        if (!this.lampConfirmed) {
-            this.log('⚠ Espera estabilización de lámpara.', 'log-err');
-            return;
-        }
-        this.lastScanTime = Date.now();
-        this.log('Disparando escaneo de espectro (Ruta 1 - Puro ASCII)...', 'log-warn');
+        this.log('\n--- ESCANEO OFICIAL (VÍA C# DLL) ---', 'log-warn');
+        this.stopFuzzerFlag = false;
         this.setLed('ADC', true, 'on-orange');
         this.rxBuffer = [];
         this.inPacket = false;
         
-        // RUTA 1: Cabecera 'S' sin GET Property
-        const payload = this.createGenericActionCommand(this.CMD.SCAN, 0x00);
-        await this.sendCmdData(payload, 'scan');
+        if (this.heartbeatTimer) { clearInterval(this.heartbeatTimer); this.heartbeatTimer = null; }
+
+        /**
+         * SECUENCIA OFICIAL VÍA DLL:
+         * 
+         * 0. INTEGRATION_TIME = 49 (0x31)
+         * 1. REPLICATES = 51 (0x33)
+         * 2. ACQUIRE_SPECTRA = 34 (0x22)
+         * 3. SCANDATA_PACKET = 80 (0x50)
+         */
+
+        this.log('Ajustando "Obturador" del Sensor (Integración y Réplicas)...', 'log-sys');
+        
+        // 0. INTEGRATION TIME = 49 -> SET = 1 -> 10,000 us (10ms).
+        // 10000 en Hex es 0x2710. En little endian 32-bit: 0x10 0x27 0x00 0x00
+        await this.sendCmdData([49, this.PROPERTY.SET, 0x10, 0x27, 0x00, 0x00], 'set_integration');
+        await this.sleep(300);
+
+        // 1. REPLICATES = 51 -> SET = 1 -> 50 escaneos para no saturar.
+        // 50 en Hex es 0x32. En little endian 32-bit: 0x32 0x00 0x00 0x00 
+        await this.sendCmdData([51, this.PROPERTY.SET, 0x32, 0x00, 0x00, 0x00], 'set_replicates');
+        await this.sleep(300);
+
+        this.log('Ordenando ACQUIRE_SPECTRA (34 / 0x22)...', 'log-sys');
+        
+        // 2. Disparo de escáner. StartScan (1)
+        await this.sendCmdData([34, this.PROPERTY.SET, 1], 'scan_start_set_1');
+        
+        let waitTime = 1500; // 50 replicates * 10 ms = 500ms + latencia
+        this.log(`Esperando exposición óptica (${waitTime}ms)...`, '');
+        await this.sleep(waitTime); 
+
+        this.log('Pidiendo SCANDATA_PACKET (80 / 0x50)...', 'log-sys');
+        
+        // 3. Pedir el SCANDATA_PACKET por GET
+        await this.sendCmdData([80, this.PROPERTY.GET], 'scan_read');
     }
 
     private bleBuffer: number[] = [];
@@ -1048,6 +1073,14 @@ class MicroNIRApp {
             // Loguear siempre los NAKs si no es fuzzer extremo
             const err = payload.length > 1 ? payload[1] : 0;
             this.log(`NAK RECIBIDO. Código de Error HW: ${err} (0x${err.toString(16)})`, 'log-err');
+        } else if (cmd === 0x50) { 
+            // 0x50 (80) es el SCANDATA_PACKET oficial según la DLL.
+            // Payload total es de 289 bytes. El byte 0 es el CMD (0x50).
+            // Luego vienen 256 bytes de espectro (128 * 2).
+            // Y 32 bytes de metadatos térmicos / HW.
+            const pixelData = payload.slice(1, 257); 
+            this.log(`Extraídos 256 bytes de Array de InGaAs. Enviando a Gráfica...`, 'log-warn');
+            this.processSpectrum(pixelData);
         } else if (cmd === 0x53 || cmd === this.CMD.SCANDATA_PACKET) {
             this.processSpectrum(payload.slice(1));
         } else if (cmd === 0x42 || cmd === this.CMD.BATTERY) {
@@ -1070,9 +1103,13 @@ class MicroNIRApp {
             setTimeout(() => {
                 this.lampConfirmed = true;
                 this.setLed('LAMP', true, 'on-green');
-                this.log('Lámpara estabilizada. SISTEMA LISTO PARA ESCANEO.', 'log-default');
+                this.log('✅ Lámpara Tungsteno encendida físicamente. ¡Permiso de escaneo concedido!', 'log-default');
                 const btnScan = document.getElementById('btnScan') as HTMLButtonElement;
                 if (btnScan) btnScan.disabled = false;
+                
+                // AUTO-SCAN TRIGGER
+                this.log('⚡ Iniciando Auto-Escaneo DLL...', 'log-warn');
+                this.scan(); // Gatilla el escaneo automáticamente
             }, 2500);
         }
     }
@@ -1358,7 +1395,7 @@ export default function App() {
                     </div>
 
                     <button id="btnScan" className="btn btn-scan" onClick={() => app()?.scan()} disabled>
-                        ▶ INICIAR ESCANEO NIR
+                        ▶ FORZAR DISPARO DE ESCÁNER
                     </button>
 
                     <div className="history-section">
