@@ -818,24 +818,19 @@ class MicroNIRApp {
          * 3. SCANDATA_PACKET = 80 (0x50)
          */
 
-        this.log('Ajustando "Obturador" del Sensor (Integración y Réplicas)...', 'log-sys');
-        
-        // 0. INTEGRATION TIME = 49 -> SET = 1 -> 10,000 us (10ms).
-        // 10000 en Hex es 0x2710. En little endian 32-bit: 0x10 0x27 0x00 0x00
-        await this.sendCmdData([49, this.PROPERTY.SET, 0x10, 0x27, 0x00, 0x00], 'set_integration');
-        await this.sleep(300);
-
-        // 1. REPLICATES = 51 -> SET = 1 -> 50 escaneos para no saturar.
-        // 50 en Hex es 0x32. En little endian 32-bit: 0x32 0x00 0x00 0x00 
-        await this.sendCmdData([51, this.PROPERTY.SET, 0x32, 0x00, 0x00, 0x00], 'set_replicates');
-        await this.sleep(300);
-
         this.log('Ordenando ACQUIRE_SPECTRA (34 / 0x22)...', 'log-sys');
         
         // 2. Disparo de escáner. StartScan (1)
+        // Action default
+        await this.sendCmdData([34, 0x00], 'scan_start_act');
+        await this.sleep(400);
+
+        // Envío Action 1 explícito si es requerido (según Macro XML de App Vavi)
+        // Nota: Basado en el log Macro, el equipo arranca a escanear SIN passkey previa
+        // El firmware de este dispositivo en particular al parecer ajusta integración automático o por default
         await this.sendCmdData([34, this.PROPERTY.SET, 1], 'scan_start_set_1');
         
-        let waitTime = 1500; // 50 replicates * 10 ms = 500ms + latencia
+        let waitTime = 2000; // 50 replicates * 10 ms = 500ms + latencia
         this.log(`Esperando exposición óptica (${waitTime}ms)...`, '');
         await this.sleep(waitTime); 
 
@@ -866,47 +861,73 @@ class MicroNIRApp {
     }
 
     private bleBuffer: number[] = [];
+    private multiPartBuffer: number[] = [];
+    private waitingForMultipartCount: number = 0;
 
     onRawData(bytes: Uint8Array) {
         // --- MODO SNIFFER ACTIVO ---
-        // Convertimos a Hexadecimal
         const hexStr = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join(' ');
-        // Convertimos a ASCII (reemplazando caracteres no imprimibles con '.')
         const asciiStr = Array.from(bytes).map(b => (b >= 32 && b <= 126) ? String.fromCharCode(b) : '.').join('');
         
-        // Loguear ABSOLUTAMENTE TODO sin filtrar por tiempo
         this.log(`[SNIFFER] RX HEX: ${hexStr}`, 'log-rx');
         this.log(`[SNIFFER] RX ASCII: ${asciiStr}`, 'log-rx');
 
         if (this.mode === 'bt') {
-            // Acumular fragmentos MTU en el buffer dinámico BLE
+            // Acumular fragmentos en el buffer dinámico
             this.bleBuffer.push(...Array.from(bytes));
 
-            // Analizar el buffer buscando [STX ... ETX]
-            let startIdx = this.bleBuffer.indexOf(this.STX);
-            let endIdx = this.bleBuffer.indexOf(this.ETX, startIdx + 1);
-
-            while (startIdx !== -1 && endIdx !== -1) {
-                const frame = this.bleBuffer.slice(startIdx + 1, endIdx);
-                this.clearTimeout_();
-                this.processPacketRaw(frame);
-
-                this.bleBuffer.splice(0, endIdx + 1);
-                
-                startIdx = this.bleBuffer.indexOf(this.STX);
-                endIdx = this.bleBuffer.indexOf(this.ETX, startIdx + 1);
+            // MODIFICACIÓN: Detector de Payload Gigante Multipartes
+            // Si el buffer tiene STX adelantado y sabemos que viene el paquete GIGANTE (0x50)
+            if (this.waitingForMultipartCount === 0 && this.bleBuffer.length >= 2 && this.bleBuffer[0] === this.STX && this.bleBuffer[1] === 0x50) {
+                // ¡Tenemos un SCANDATA GIGANTE en camino! (289 bytes esperados)
+                this.waitingForMultipartCount = 289; 
             }
 
-            // Si el buffer crece descontroladamente o hay basura antes del STX
-            if (this.bleBuffer.length > 2000 && startIdx > 0) {
-                this.log("Limpiando basura fragmentada del buffer BLE...", "log-sys");
-                this.bleBuffer.splice(0, startIdx);
-            } else if (this.bleBuffer.length > 5000) {
-                this.log("Reset de emergencia del buffer BLE (Overflow).", "log-err");
-                this.bleBuffer = [];
+            // Si estamos atrapando el paquete gigante
+            if (this.waitingForMultipartCount > 0) {
+                // ¿Ya tenemos el paquete completo en el buffer?
+                if (this.bleBuffer.length >= this.waitingForMultipartCount) {
+                    const fullFrame = this.bleBuffer.slice(1, this.waitingForMultipartCount - 1); // Quitar STX inicial y ETX/CRC si es posible
+                    
+                    this.clearTimeout_();
+                    this.log(`¡Buffer Multipartes lleno! (${this.waitingForMultipartCount} bytes capturados). Procesando...`, 'log-sys');
+                    
+                    // Procesar a la mala (Directo al cerebro)
+                    this.processPacketRaw(fullFrame); // Le pasamos desde 0x50 hasta el final
+                    
+                    // Limpiar solo los bytes agarrados
+                    this.bleBuffer.splice(0, this.waitingForMultipartCount);
+                    this.waitingForMultipartCount = 0;
+                } else {
+                    this.log(`Esperando más chunks BLE para el espectro... van ${this.bleBuffer.length} / ${this.waitingForMultipartCount}`, 'log-debug');
+                    return; // No procesar STX/ETX normal, solo acumular
+                }
+            }
+
+            // Flujo Normal (Paquetes cortos con STX y ETX)
+            if (this.waitingForMultipartCount === 0) {
+                let startIdx = this.bleBuffer.indexOf(this.STX);
+                let endIdx = this.bleBuffer.indexOf(this.ETX, startIdx + 1);
+
+                while (startIdx !== -1 && endIdx !== -1) {
+                    const frame = this.bleBuffer.slice(startIdx + 1, endIdx);
+                    this.clearTimeout_();
+                    this.processPacketRaw(frame);
+
+                    this.bleBuffer.splice(0, endIdx + 1);
+                    
+                    startIdx = this.bleBuffer.indexOf(this.STX);
+                    endIdx = this.bleBuffer.indexOf(this.ETX, startIdx + 1);
+                }
+
+                if (this.bleBuffer.length > 2000 && startIdx > 0) {
+                    this.log("Limpiando basura fragmentada...", "log-sys");
+                    this.bleBuffer.splice(0, startIdx);
+                } else if (this.bleBuffer.length > 5000) {
+                    this.bleBuffer = [];
+                }
             }
         } else {
-            // Modo USB, usar el paseador byte-by-byte
             this.parseBytes(bytes);
         }
     }
