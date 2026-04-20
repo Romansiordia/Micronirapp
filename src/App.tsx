@@ -51,8 +51,10 @@ class MicroNIRApp {
     ftdiByteCount: number;
     lastSpectrum: number[];
     lastScanTime: number;
-    baselineData: number[] | null;
-    showBaseline: boolean;
+    referenceData: { dark: number[] | null, white: number[] | null };
+    isTakingReference: 'dark' | 'white' | false;
+    scanCounter: number;
+    showAbsorbance: boolean;
     pktCount: number;
     responseTimeout: any;
     TIMEOUT_MS: number;
@@ -147,8 +149,10 @@ class MicroNIRApp {
 
         this.lastSpectrum  = [];
         this.lastScanTime  = 0;
-        this.baselineData  = null;
-        this.showBaseline  = false;
+        this.referenceData = { dark: null, white: null };
+        this.isTakingReference = false;
+        this.scanCounter = 0;
+        this.showAbsorbance = false;
         this.pktCount      = 0;
 
         this.responseTimeout = null;
@@ -346,12 +350,8 @@ class MicroNIRApp {
         this.inPacket = false;
 
         this.setSig('LINK', true);
-        this.log('MCU listo. Enviando comando Lámpara...', 'log-tx');
-
-        // 4. TX [LAMP] - MODO ASCII
-        await this.lampOn();
-
-        // El resto de la validación se hará al recibir el ACK (0x06)
+        this.log('MCU listo y en modo Standby.', 'log-warn');
+        this.log('Por favor inicia la calibración (OSCURIDAD -> BLANCO -> MUESTRA).', 'log-sys');
     }
 
     async setDTR(high: boolean) {
@@ -800,9 +800,8 @@ class MicroNIRApp {
         this.updateUI(); // Esto habilita el botón de escaneo
     }
 
-    async scan() {
+    async scan(withLamp: boolean = true) {
         this.log('\n--- ESCANEO OFICIAL (VÍA C# DLL) ---', 'log-warn');
-        this.stopFuzzerFlag = false;
         this.setLed('ADC', true, 'on-orange');
         this.rxBuffer = [];
         this.inPacket = false;
@@ -820,15 +819,13 @@ class MicroNIRApp {
 
         this.log('Ordenando ACQUIRE_SPECTRA (34 / 0x22)...', 'log-sys');
         
-        // 2. Disparo de escáner. StartScan (1)
-        // Action default
+        // 2. Disparo de escáner. StartScan
         await this.sendCmdData([34, 0x00], 'scan_start_act');
         await this.sleep(400);
 
-        // Envío Action 1 explícito si es requerido (según Macro XML de App Vavi)
-        // Nota: Basado en el log Macro, el equipo arranca a escanear SIN passkey previa
-        // El firmware de este dispositivo en particular al parecer ajusta integración automático o por default
-        await this.sendCmdData([34, this.PROPERTY.SET, 1], 'scan_start_set_1');
+        // El parámetro 1 indica que encienda la lámpara. 0 para dejarla apagada.
+        const lampParam = withLamp ? 1 : 0;
+        await this.sendCmdData([34, this.PROPERTY.SET, lampParam], 'scan_start_set_' + lampParam);
         
         let waitTime = 2000; // 50 replicates * 10 ms = 500ms + latencia
         this.log(`Esperando exposición óptica (${waitTime}ms)...`, '');
@@ -841,17 +838,10 @@ class MicroNIRApp {
     }
 
     private bleBuffer: number[] = [];
-    private stopFuzzerFlag: boolean = false;
-
-    stopFuzzer() {
-        this.stopFuzzerFlag = true;
-        this.log('🛑 SEÑAL DE PARADA ENVIADA. Deteniendo fuzzer...', 'log-warn');
-    }
 
     async batteryPing() {
         if (!this.connected) return;
         this.log('\n--- DIAGNÓSTICO BATERÍA ---', 'log-warn');
-        this.stopFuzzerFlag = false;
         
         if (this.heartbeatTimer) { clearInterval(this.heartbeatTimer); this.heartbeatTimer = null; }
 
@@ -1127,11 +1117,13 @@ class MicroNIRApp {
                 this.log('✅ Lámpara Tungsteno encendida físicamente. ¡Permiso de escaneo concedido!', 'log-default');
                 const btnScan = document.getElementById('btnScan') as HTMLButtonElement;
                 if (btnScan) btnScan.disabled = false;
-                
-                // AUTO-SCAN TRIGGER
-                this.log('⚡ Iniciando Auto-Escaneo DLL...', 'log-warn');
-                this.scan(); // Gatilla el escaneo automáticamente
             }, 2500);
+        } else if (this.lastCmdType === 'lamp_off') {
+            this.log('✅ Lámpara Apagada Confirmada. Escaneando Ref. Oscura en 500ms...', 'log-sys');
+            setTimeout(() => { this.scan(false); }, 500);
+        } else if (this.lastCmdType === 'lamp_on') {
+            this.log('✅ Lámpara Encendida Confirmada. Esperando Estabilidad Térmica (2000ms)...', 'log-sys');
+            setTimeout(() => { this.scan(true); }, 2000);
         }
     }
 
@@ -1156,13 +1148,35 @@ class MicroNIRApp {
         this.log(`Espectro OK: ${spectrum.length} píxeles, paquete #${this.pktCount}`, '');
         this.setLed('ADC', true, 'on-green');
 
+        // ROUTING STATE MACHINE PARA CALIBRACIÓN
+        if (this.isTakingReference === 'dark') {
+            this.referenceData.dark = [...spectrum];
+            this.log(`✓ Referencia 'DARK' guardada correctamente.`, 'log-warn');
+            this.isTakingReference = false;
+            this.updateChartStatus();
+        } else if (this.isTakingReference === 'white') {
+            this.referenceData.white = [...spectrum];
+            this.log(`✓ Referencia 'WHITE' guardada correctamente.`, 'log-warn');
+            this.isTakingReference = false;
+            this.updateChartStatus();
+        }
+
         let displayData = spectrum;
-        if (this.baselineData && this.showBaseline && this.baselineData.length === spectrum.length) {
-            displayData = spectrum.map((v, i) => {
-                const ref = this.baselineData![i] || 1;
-                return ref > 0 ? -Math.log10(v / ref) * 1000 : 0;
+        if (this.showAbsorbance && this.referenceData.dark && this.referenceData.white) {
+            displayData = spectrum.map((S, i) => {
+                const D = this.referenceData.dark![i] || 0;
+                const W = this.referenceData.white![i] || 1; // Prevent div by zero
+                
+                const numerator = S - D;
+                const denominator = W - D;
+                
+                // Evitar reflectancias negativas o infinitas 
+                let R = numerator / (denominator === 0 ? 1 : denominator);
+                R = Math.max(R, 0.0001); // Safe Log
+
+                return (-Math.log10(R)) * 1000; // Multiplicado para escala visual del gráfico
             });
-            this.log('Absorbancia calculada (Log(I/I0) × 1000).', 'log-sys');
+            this.log('Aplicada fórmula Absorbancia: -Log10((S-D)/(W-D))', '');
         }
 
         this.updateChart(displayData, spectrum.length);
@@ -1239,31 +1253,80 @@ class MicroNIRApp {
         this.log('Gráfica limpiada.', 'log-sys');
     }
 
-    toggleBaseline() {
-        if (!this.lastSpectrum.length) { this.log('Sin espectro de referencia.', 'log-warn'); return; }
-        if (!this.baselineData) {
-            this.baselineData = [...this.lastSpectrum];
-            this.chart.data.datasets[1].data = this.baselineData;
-            this.chart.update();
-            this.log(`Baseline guardado (${this.baselineData.length} px). Próximo scan = absorbancia.`, '');
-            this.showBaseline = true;
-        } else {
-            this.baselineData = null;
-            this.showBaseline = false;
-            this.chart.data.datasets[1].data = [];
-            this.chart.update();
-            this.log('Baseline eliminado. Mostrando intensidad raw.', 'log-sys');
+    setDarkReference() {
+        if (!this.connected) return alert("Conecta el MicroNIR primero.");
+        this.log('Iniciando CALIBRACIÓN OSCURA (Lámpara OFF)...', 'log-warn');
+        this.isTakingReference = 'dark';
+        this.showAbsorbance = false; // Forza vista ADC crudo
+        
+        // Cierra lámpara explícitamente y al recibir ACK mandará el scan
+        this.sendCmdData([0x21, this.PROPERTY.SET, 0], 'lamp_off');
+    }
+
+    setWhiteReference() {
+        if (!this.connected) return alert("Conecta el MicroNIR primero.");
+        this.log('Iniciando CALIBRACIÓN BLANCA (Lámpara ON)...', 'log-warn');
+        this.isTakingReference = 'white';
+        this.showAbsorbance = false; // Forza vista ADC crudo
+        
+        // Enciende lámpara explícitamente y al recibir ACK mandará el scan
+        this.sendCmdData([0x21, this.PROPERTY.SET, 1], 'lamp_on');
+    }
+
+    scanSample() {
+        if (!this.connected) return alert("Conecta el MicroNIR primero.");
+        if (!this.referenceData.dark || !this.referenceData.white) {
+             return alert("Por favor toma la Oscuridad [1] y Blanco [2] antes de escanear la muestra.");
         }
+        this.log('ESCANEO DE MUESTRA QUÍMICA...', 'log-warn');
+        this.isTakingReference = false;
+        this.showAbsorbance = true; // Auto-fijar absorbancia al escanear muestra
+        
+        // Verifica si la lampara está encendida.
+        // Al recibir ACK 'lamp_on', mandará el scan. Si la lámpara ya estaba prendida,
+        // esto servirá de sincronización.
+        this.sendCmdData([0x21, this.PROPERTY.SET, 1], 'lamp_on');
+    }
+
+    toggleAbsorbance() {
+        if (!this.referenceData.dark || !this.referenceData.white) {
+             this.log('Faltan referencias Dark/White para Absorbancia.', 'log-err'); 
+             alert('Debes establecer primero tu referencia DARK y WHITE.');
+             return; 
+        }
+        this.showAbsorbance = !this.showAbsorbance;
+        this.log(this.showAbsorbance ? 'Mostrando Absorbancia (Log 1/R)' : 'Mostrando ADC Raw.', 'log-sys');
+        this.updateChartStatus();
+        if (this.lastSpectrum.length > 0) this.updateChart(this.lastSpectrum, this.lastSpectrum.length);
+    }
+    
+    updateChartStatus() {
+        // Actualiza el CSS de los botones grandes del Wizard de Calibración
+        const dBtn = document.getElementById('btnDark');
+        if (dBtn) dBtn.style.border = this.referenceData.dark ? '1px solid #00b8d9' : '1px solid #1a2535';
+        if (dBtn) dBtn.style.color = this.referenceData.dark ? '#00b8d9' : '#b8cfe0';
+        
+        const wBtn = document.getElementById('btnWhite');
+        if (wBtn) wBtn.style.border = this.referenceData.white ? '1px solid #00b8d9' : '1px solid #1a2535';
+        if (wBtn) wBtn.style.color = this.referenceData.white ? '#00b8d9' : '#b8cfe0';
     }
 
     exportCSV() {
         if (!this.lastSpectrum.length) { this.log('Sin datos.', 'log-warn'); return; }
         const rows = ['wavelength_nm,intensity_16bit,absorbance'].concat(
-            this.lastSpectrum.map((v, i) => {
+            this.lastSpectrum.map((S, i) => {
                 const nm  = Math.round(908 + i * (1676 - 908) / 127);
-                const abs = this.baselineData && this.baselineData[i] > 0
-                    ? (-Math.log10(v / this.baselineData[i])).toFixed(5) : '';
-                return `${nm},${v},${abs}`;
+                let abs = '';
+                
+                if (this.referenceData.dark && this.referenceData.white) {
+                    const D = this.referenceData.dark[i] || 0;
+                    const W = this.referenceData.white[i] || 1;
+                    let R = (S - D) / ((W - D) === 0 ? 1 : (W - D));
+                    R = Math.max(R, 0.0001);
+                    abs = (-Math.log10(R)).toFixed(5);
+                }
+                
+                return `${nm},${S},${abs}`;
             })
         );
         const a = document.createElement('a');
@@ -1462,13 +1525,29 @@ export default function App() {
                         </div>
                     </div>
 
+                    <div className="calibration-wizard" style={{ display: 'flex', gap: '10px', backgroundColor: '#0c1017', padding: '15px', borderRadius: '4px', border: '1px solid #1a2535', marginBottom: '15px', alignItems: 'center' }}>
+                        <div style={{ color: '#4a6278', fontSize: '0.8rem', fontWeight: 'bold', width: '150px' }}>FLUJO DE<br/>CALIBRACIÓN:</div>
+                        
+                        <button id="btnDark" className="btn" onClick={() => app()?.setDarkReference()} style={{ flex: 1, backgroundColor: '#1a2535', color: '#b8cfe0', border: '1px solid #1a2535' }}>
+                            <span style={{opacity: 0.6, marginRight: '5px'}}>[1]</span> OSCURIDAD
+                        </button>
+                        
+                        <button id="btnWhite" className="btn" onClick={() => app()?.setWhiteReference()} style={{ flex: 1, backgroundColor: '#1a2535', color: '#b8cfe0', border: '1px solid #1a2535' }}>
+                            <span style={{opacity: 0.6, marginRight: '5px'}}>[2]</span> BLANCO
+                        </button>
+                        
+                        <button id="btnAbs" className="btn" onClick={() => app()?.scanSample()} style={{ flex: 1, backgroundColor: '#00b8d9', color: '#0c1017', fontWeight: 'bold' }}>
+                            <span style={{opacity: 0.6, marginRight: '5px'}}>[3]</span> MUESTRA (ABS)
+                        </button>
+                    </div>
+
                     <div className="chart-panel">
                         <div className="chart-hdr">
                             <span className="chart-title">ESPECTRO NIR — 128 PÍXELES InGaAs · 16-BIT BIG ENDIAN</span>
                             <div className="chart-btns">
+                                <button className="chip-btn" onClick={() => app()?.toggleAbsorbance()}>Adc / Absorbancia</button>
                                 <button className="chip-btn" onClick={() => app()?.clearChart()}>Limpiar</button>
                                 <button className="chip-btn" onClick={() => app()?.exportCSV()}>CSV</button>
-                                <button className="chip-btn" onClick={() => app()?.toggleBaseline()}>Baseline</button>
                             </div>
                         </div>
                         <div className="chart-canvas-wrap">
@@ -1480,9 +1559,6 @@ export default function App() {
                         <div className="console-wrap" style={{ display: 'flex', flexDirection: 'column' }}>
                             <div className="sec-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <span>Monitor UART / Protocolo BLE</span>
-                                <button className="chip-btn" onClick={() => app()?.stopFuzzer()} style={{ backgroundColor: '#e74c3c', color: 'white', border: 'none', padding: '3px 10px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>
-                                    🛑 DETENER FUZZER
-                                </button>
                             </div>
                             <div className="console" id="console" style={{ fontSize: '13px', lineHeight: '1.4' }}>
                                 <div className="log-sys">{'>'} MicroNIR Controller v6.0 — Modo Producción.</div>
