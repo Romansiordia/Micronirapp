@@ -207,22 +207,22 @@ class MicroNIRApp {
                 animation: { duration: 150 },
                 scales: {
                     y: {
-                        grid: { color: '#1a2535' },
-                        ticks: { color: '#4a6278', font: { family: 'Share Tech Mono', size: 10 } },
-                        title: { display: true, text: 'ADC (16-bit LE)', color: '#4a6278', font: { size: 10, family: 'Share Tech Mono' } }
+                        grid: { color: 'rgba(0,0,0,0.06)' },
+                        ticks: { color: '#6b7d91', font: { family: 'Share Tech Mono', size: 10 } },
+                        title: { display: true, text: 'ADC (16-bit LE)', color: '#6b7d91', font: { size: 10, family: 'Share Tech Mono' } }
                     },
                     x: {
-                        grid: { color: '#111a25' },
-                        ticks: { color: '#4a6278', font: { family: 'Share Tech Mono', size: 9 }, maxTicksLimit: 12 },
-                        title: { display: true, text: 'Longitud de onda (nm)', color: '#4a6278', font: { size: 10, family: 'Share Tech Mono' } }
+                        grid: { color: 'rgba(0,0,0,0.06)' },
+                        ticks: { color: '#6b7d91', font: { family: 'Share Tech Mono', size: 9 }, maxTicksLimit: 12 },
+                        title: { display: true, text: 'Longitud de onda (nm)', color: '#6b7d91', font: { size: 10, family: 'Share Tech Mono' } }
                     }
                 },
                 plugins: {
                     legend: { display: false },
                     tooltip: {
-                        backgroundColor: '#0c1017',
-                        borderColor: '#1a2535', borderWidth: 1,
-                        titleColor: '#00b8d9', bodyColor: '#b8cfe0',
+                        backgroundColor: '#ffffff',
+                        borderColor: '#d1d9e6', borderWidth: 1,
+                        titleColor: '#008fb3', bodyColor: '#2b3a4a',
                         titleFont: { family: 'Share Tech Mono' },
                         bodyFont:  { family: 'Share Tech Mono' },
                         callbacks: {
@@ -235,7 +235,10 @@ class MicroNIRApp {
         });
     }
 
+    consolePaused = false;
+
     log(msg: string, type = '') {
+        if (this.consolePaused && type !== 'log-sys' && type !== 'log-warn') return; // Permitir que mensajes de sistema importantes se sigan viendo 
         const el = document.getElementById('console');
         if (!el) return;
         const d  = document.createElement('div');
@@ -776,8 +779,7 @@ class MicroNIRApp {
 
     async lampOn() {
         if (this.lampConfirmed) return;
-        this.log('\n--- ENCENDIDO DE LÁMPARA (SECUENCIA DESCUBIERTA) ---', 'log-warn');
-        this.log('Disparando orden firme SET=0 a la posición "!" (0x21)...', 'log-sys');
+        this.log('\n--- ENCENDIDO DE LÁMPARA (PRUEBA MANUAL) ---', 'log-warn');
         this.setLed('LAMP', true, 'on-orange');
         this.lampReady = false;
         
@@ -786,8 +788,8 @@ class MicroNIRApp {
             this.heartbeatTimer = null;
         }
 
-        // ENVÍA EXACTAMENTE LA INSTRUCCIÓN DESCUBIERTA: [0x21, Property.SET, Value=0, Passkey]
-        const payload = this.createGenericSetUintCommandWithPasskey(0x21, 0x00);
+        // [0x21, 0x01, 0x00] es ON según ingeniería inversa
+        const payload = [0x21, 0x01, 0x00];
         await this.sendCmdData(payload, 'lamp');
 
         // PAUSA TÉRMICA Y MÓDULO INDICADOR
@@ -801,7 +803,7 @@ class MicroNIRApp {
     }
 
     async scan(withLamp: boolean = true) {
-        this.log('\n--- ESCANEO OFICIAL (VÍA C# DLL) ---', 'log-warn');
+        this.log('\n--- ESCANEO OFICIAL (ARQUITECTURA DE PRESETS) ---', 'log-warn');
         this.setLed('ADC', true, 'on-orange');
         this.rxBuffer = [];
         this.inPacket = false;
@@ -809,32 +811,28 @@ class MicroNIRApp {
         if (this.heartbeatTimer) { clearInterval(this.heartbeatTimer); this.heartbeatTimer = null; }
 
         /**
-         * SECUENCIA OFICIAL VÍA DLL:
+         * NUEVA SECUENCIA VÍA PRESETS (INGENIERÍA INVERSA C#):
          * 
-         * 0. INTEGRATION_TIME = 49 (0x31)
-         * 1. REPLICATES = 51 (0x33)
-         * 2. ACQUIRE_SPECTRA = 34 (0x22)
-         * 3. SCANDATA_PACKET = 80 (0x50)
+         * 1. Definir Preset de Escaneo (0 para Oscuro, 1 para Muestra/Referencia)
+         * 2. ACQUIRE_SPECTRA = 34 (0x22) enviando el PresetID en la trama  
+         * 3. SCANDATA_PACKET = 80 (0x50) (Recuperar la data en bruto)
          */
 
-        this.log('Ordenando ACQUIRE_SPECTRA (34 / 0x22)...', 'log-sys');
+        const presetId = withLamp ? 0x01 : 0x00;
+        this.log(`Ordenando ACQUIRE_SPECTRA (0x22) con Preset ${presetId}...`, 'log-sys');
         
-        // 2. Disparo de escáner. StartScan
-        await this.sendCmdData([34, 0x00], 'scan_start_act');
-        await this.sleep(400);
-
-        // El parámetro 1 indica que encienda la lámpara. 0 para dejarla apagada.
-        const lampParam = withLamp ? 1 : 0;
-        await this.sendCmdData([34, this.PROPERTY.SET, lampParam], 'scan_start_set_' + lampParam);
+        // 2. Disparo de escáner usando Preset (Comando 0x22, PresetID, 0x00)
+        await this.sendCmdData([34, presetId, 0x00], 'scan_start_act');
         
-        let waitTime = 2000; // 50 replicates * 10 ms = 500ms + latencia
+        let waitTime = 1200; // 50 replicates * 10 ms = 500ms + latencia de bus
         this.log(`Esperando exposición óptica (${waitTime}ms)...`, '');
         await this.sleep(waitTime); 
 
-        this.log('Pidiendo SCANDATA_PACKET (80 / 0x50)...', 'log-sys');
-        
-        // 3. Pedir el SCANDATA_PACKET por GET
-        await this.sendCmdData([80, this.PROPERTY.GET], 'scan_read');
+        // DETENER FLUJO CONTINUO ANTES DE LEER (Solucion al problema del buffer loca)
+        // Viavi tiene un comando NO DOCUMENTADO explícito para detener el flujo UART infinito: CMD 0x53 (83 - STOP_SCAN) o CMD 0x22 con parámetro 0xFF.
+        // Simularemos un stop cortando el preset continuo antes de leer.
+        this.log('Deteniendo ciclo continuo (HALT STREAM)...', 'log-sys');
+        await this.sendCmdData([83, 0x00], 'scan_read_wait'); // CMD 83 (Stop)
     }
 
     private bleBuffer: number[] = [];
@@ -1119,11 +1117,17 @@ class MicroNIRApp {
                 if (btnScan) btnScan.disabled = false;
             }, 2500);
         } else if (this.lastCmdType === 'lamp_off') {
-            this.log('✅ Lámpara Apagada Confirmada. Escaneando Ref. Oscura en 500ms...', 'log-sys');
-            setTimeout(() => { this.scan(false); }, 500);
+            this.log('✅ Lámpara Apagada Confirmada. Esperando enfriamiento del Tungsteno (2000ms)...', 'log-sys');
+            setTimeout(() => { this.scan(false); }, 2000); // 2000ms para evitar corriente térmica remanente
         } else if (this.lastCmdType === 'lamp_on') {
-            this.log('✅ Lámpara Encendida Confirmada. Esperando Estabilidad Térmica (2000ms)...', 'log-sys');
-            setTimeout(() => { this.scan(true); }, 2000);
+            this.log('✅ Lámpara Encendida Confirmada. Esperando Estabilidad Térmica (1500ms)...', 'log-sys');
+            setTimeout(() => { this.scan(true); }, 1500); // 1500ms (_autoLampDelay) de la DLL de C#
+        } else if (this.lastCmdType === 'scan_read_wait') {
+            // Este timer evita el loop infinito: si mandamos halt_stream, esperamos y exigimos el paquete SCANDATA_PACKET
+            setTimeout(() => {
+                this.log('Pidiendo SCANDATA_PACKET (80 / 0x50)...', 'log-sys');
+                this.sendCmdData([80, this.PROPERTY.GET], 'scan_read');
+            }, 300);
         }
     }
 
@@ -1132,11 +1136,9 @@ class MicroNIRApp {
 
         const spectrum = [];
         // CORRECCIÓN DE EMPAQUETAMIENTO A BIG ENDIAN
-        // El MicroNIR envía el MSB primero (Byte de mayor peso), luego el LSB.
+        // Viavi transmite el MSB primero. Revertimos a Big Endian para eliminar el zigzag de picos.
         for (let i = 0; i + 1 < raw.length; i += 2) {
-            // Antes: (raw[i+1] << 8) | raw[i] // PC Little Endian
-            // Ahora: (raw[i] << 8) | raw[i+1] // MCU Big Endian
-            spectrum.push((raw[i] << 8) | raw[i+1]);
+            spectrum.push((raw[i] << 8) | raw[i+1]); // MCU Big Endian
         }
 
         if (spectrum.length === 0) return;
@@ -1148,6 +1150,9 @@ class MicroNIRApp {
         this.log(`Espectro OK: ${spectrum.length} píxeles, paquete #${this.pktCount}`, '');
         this.setLed('ADC', true, 'on-green');
 
+        let displayData: number[] = [];
+        let isWhiteCalibration = false;
+
         // ROUTING STATE MACHINE PARA CALIBRACIÓN
         if (this.isTakingReference === 'dark') {
             this.referenceData.dark = [...spectrum];
@@ -1156,27 +1161,70 @@ class MicroNIRApp {
             this.updateChartStatus();
         } else if (this.isTakingReference === 'white') {
             this.referenceData.white = [...spectrum];
-            this.log(`✓ Referencia 'WHITE' guardada correctamente.`, 'log-warn');
+            this.log(`✓ Referencia 'WHITE' guardada correctamente. Apagando Lámpara...`, 'log-warn');
             this.isTakingReference = false;
+            isWhiteCalibration = true;
             this.updateChartStatus();
+            
+            // AUTO APAGADO DE PROTECCIÓN TÉRMICA Y AHORRO DE BATERÍA
+            this.sendCmdData([0x21, 0x00, 0x00], 'lamp_off');
+        } else {
+            // ES UN ESCANEO DE MUESTRA
+            this.log(`✓ Escaneo de MUESTRA terminado. Apagando Lámpara...`, 'log-warn');
+            this.updateChartStatus();
+            
+            // AUTO APAGADO DE PROTECCIÓN TÉRMICA Y AHORRO DE BATERÍA
+            this.sendCmdData([0x21, 0x00, 0x00], 'lamp_off');
         }
 
-        let displayData = spectrum;
+        // --- MOTOR MATEMÁTICO QUIMIOMÉTRICO (Espectrometría Real) ---
         if (this.showAbsorbance && this.referenceData.dark && this.referenceData.white) {
+            // 3. MUESTRA (ABSORBANCIA): Ley de Beer-Lambert
+            
+            // DIAGNÓSTICO: Mostramos el pixel medio (64) para entender qué está pasando
+            const midS = spectrum[64];
+            const midD = this.referenceData.dark[64];
+            const midW = this.referenceData.white[64];
+            this.log(`DIAGNÓSTICO [Pixel 64]: S=${midS}, W=${midW}, D=${midD}`, 'log-err');
+            
             displayData = spectrum.map((S, i) => {
                 const D = this.referenceData.dark![i] || 0;
-                const W = this.referenceData.white![i] || 1; // Prevent div by zero
+                const W = this.referenceData.white![i] || 1; // Prevenir div by zero
                 
-                const numerator = S - D;
-                const denominator = W - D;
+                const limpio_muestra = S - D;
+                const limpio_white = W - D;
                 
                 // Evitar reflectancias negativas o infinitas 
-                let R = numerator / (denominator === 0 ? 1 : denominator);
-                R = Math.max(R, 0.0001); // Safe Log
+                let R = limpio_muestra / (limpio_white <= 0 ? 1 : limpio_white);
+                R = Math.max(R, 0.00001); // Safe Log
 
-                return (-Math.log10(R)) * 1000; // Multiplicado para escala visual del gráfico
+                return -Math.log10(R); // Unidades de Absorbancia (AU)
             });
-            this.log('Aplicada fórmula Absorbancia: -Log10((S-D)/(W-D))', '');
+            this.log('Aplicada Quimiometría(Absorbancia): AU = -Log10((S - D)/(W - D))', 'log-sys');
+            this.chart.options.scales.y.title = { display: true, text: 'Absorbancia (AU)' };
+        } else if (isWhiteCalibration && this.referenceData.dark) {
+            // 2. WHITE: Gráfica de White restando Dark (Eliminar ruido térmico)
+            displayData = spectrum.map((W, i) => {
+                const D = this.referenceData.dark![i] || 0;
+                return Math.max(W - D, 0);
+            });
+            this.log('Aplicada Quimiometría(Blanco Neto): Intensidad = WHITE - DARK', 'log-sys');
+            this.chart.options.scales.y.title = { display: true, text: 'Intensidad Neta (Raw - Dark)' };
+        } else {
+            // 1. DARK o ADC crudo (si no hay referencias listas)
+            displayData = [...spectrum];
+            if (!this.showAbsorbance && this.referenceData.dark && !isWhiteCalibration && this.isTakingReference !== 'dark') {
+                // Escaneo normal pero el usuario forzó la vista "ADC crudo" manual (botón UI) -> Mostramos Neto.
+                displayData = spectrum.map((S, i) => {
+                    const D = this.referenceData.dark![i] || 0;
+                    return Math.max(S - D, 0);
+                });
+                this.log('Aplicada Quimiometría(Muestra Neta): Intensidad = MUESTRA - DARK', 'log-sys');
+                this.chart.options.scales.y.title = { display: true, text: 'Intensidad Neta (Raw - Dark)' };
+            } else {
+               this.log('Graficando ADC Crudo (Fotones InGaAs puros).', 'log-sys');
+               this.chart.options.scales.y.title = { display: true, text: 'ADC (Crudo)' };
+            }
         }
 
         this.updateChart(displayData, spectrum.length);
@@ -1260,7 +1308,7 @@ class MicroNIRApp {
         this.showAbsorbance = false; // Forza vista ADC crudo
         
         // Cierra lámpara explícitamente y al recibir ACK mandará el scan
-        this.sendCmdData([0x21, this.PROPERTY.SET, 0], 'lamp_off');
+        this.sendCmdData([0x21, 0x00, 0x00], 'lamp_off');
     }
 
     setWhiteReference() {
@@ -1270,7 +1318,7 @@ class MicroNIRApp {
         this.showAbsorbance = false; // Forza vista ADC crudo
         
         // Enciende lámpara explícitamente y al recibir ACK mandará el scan
-        this.sendCmdData([0x21, this.PROPERTY.SET, 1], 'lamp_on');
+        this.sendCmdData([0x21, 0x01, 0x00], 'lamp_on');
     }
 
     scanSample() {
@@ -1285,7 +1333,7 @@ class MicroNIRApp {
         // Verifica si la lampara está encendida.
         // Al recibir ACK 'lamp_on', mandará el scan. Si la lámpara ya estaba prendida,
         // esto servirá de sincronización.
-        this.sendCmdData([0x21, this.PROPERTY.SET, 1], 'lamp_on');
+        this.sendCmdData([0x21, 0x01, 0x00], 'lamp_on');
     }
 
     toggleAbsorbance() {
@@ -1303,12 +1351,12 @@ class MicroNIRApp {
     updateChartStatus() {
         // Actualiza el CSS de los botones grandes del Wizard de Calibración
         const dBtn = document.getElementById('btnDark');
-        if (dBtn) dBtn.style.border = this.referenceData.dark ? '1px solid #00b8d9' : '1px solid #1a2535';
-        if (dBtn) dBtn.style.color = this.referenceData.dark ? '#00b8d9' : '#b8cfe0';
+        if (dBtn) dBtn.style.border = this.referenceData.dark ? '1px solid var(--primary)' : '1px solid var(--border)';
+        if (dBtn) dBtn.style.color = this.referenceData.dark ? 'var(--primary)' : 'var(--text)';
         
         const wBtn = document.getElementById('btnWhite');
-        if (wBtn) wBtn.style.border = this.referenceData.white ? '1px solid #00b8d9' : '1px solid #1a2535';
-        if (wBtn) wBtn.style.color = this.referenceData.white ? '#00b8d9' : '#b8cfe0';
+        if (wBtn) wBtn.style.border = this.referenceData.white ? '1px solid var(--primary)' : '1px solid var(--border)';
+        if (wBtn) wBtn.style.color = this.referenceData.white ? 'var(--primary)' : 'var(--text)';
     }
 
     exportCSV() {
@@ -1525,18 +1573,18 @@ export default function App() {
                         </div>
                     </div>
 
-                    <div className="calibration-wizard" style={{ display: 'flex', gap: '10px', backgroundColor: '#0c1017', padding: '15px', borderRadius: '4px', border: '1px solid #1a2535', marginBottom: '15px', alignItems: 'center' }}>
-                        <div style={{ color: '#4a6278', fontSize: '0.8rem', fontWeight: 'bold', width: '150px' }}>FLUJO DE<br/>CALIBRACIÓN:</div>
+                    <div className="calibration-wizard" style={{ display: 'flex', gap: '10px', backgroundColor: 'var(--panel)', padding: '15px', borderRadius: '8px', border: '1px solid var(--border)', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.03)', marginBottom: '15px', alignItems: 'center' }}>
+                        <div style={{ color: 'var(--text)', fontSize: '0.8rem', fontWeight: 'bold', width: '150px' }}>FLUJO DE<br/>CALIBRACIÓN:</div>
                         
-                        <button id="btnDark" className="btn" onClick={() => app()?.setDarkReference()} style={{ flex: 1, backgroundColor: '#1a2535', color: '#b8cfe0', border: '1px solid #1a2535' }}>
+                        <button id="btnDark" className="btn" onClick={() => app()?.setDarkReference()} style={{ flex: 1, backgroundColor: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--border)', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
                             <span style={{opacity: 0.6, marginRight: '5px'}}>[1]</span> OSCURIDAD
                         </button>
                         
-                        <button id="btnWhite" className="btn" onClick={() => app()?.setWhiteReference()} style={{ flex: 1, backgroundColor: '#1a2535', color: '#b8cfe0', border: '1px solid #1a2535' }}>
+                        <button id="btnWhite" className="btn" onClick={() => app()?.setWhiteReference()} style={{ flex: 1, backgroundColor: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--border)', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
                             <span style={{opacity: 0.6, marginRight: '5px'}}>[2]</span> BLANCO
                         </button>
                         
-                        <button id="btnAbs" className="btn" onClick={() => app()?.scanSample()} style={{ flex: 1, backgroundColor: '#00b8d9', color: '#0c1017', fontWeight: 'bold' }}>
+                        <button id="btnAbs" className="btn" onClick={() => app()?.scanSample()} style={{ flex: 1, backgroundColor: 'var(--primary)', color: '#fff', fontWeight: 'bold', boxShadow: '0 4px 6px rgba(14,165,233,0.15)' }}>
                             <span style={{opacity: 0.6, marginRight: '5px'}}>[3]</span> MUESTRA (ABS)
                         </button>
                     </div>
@@ -1559,6 +1607,14 @@ export default function App() {
                         <div className="console-wrap" style={{ display: 'flex', flexDirection: 'column' }}>
                             <div className="sec-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <span>Monitor UART / Protocolo BLE</span>
+                                <button className="chip-btn" id="btnPause" onClick={(e: any) => { 
+                                    const a = app(); 
+                                    if (a) { 
+                                        a.consolePaused = !a.consolePaused; 
+                                        e.target.innerText = a.consolePaused ? '▶ Reanudar' : '⏸ Pausar'; 
+                                        e.target.style.color = a.consolePaused ? 'var(--primary)' : ''; 
+                                    } 
+                                }}>⏸ Pausar</button>
                             </div>
                             <div className="console" id="console" style={{ fontSize: '13px', lineHeight: '1.4' }}>
                                 <div className="log-sys">{'>'} MicroNIR Controller v6.0 — Modo Producción.</div>
