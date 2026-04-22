@@ -30,7 +30,7 @@ class MicroNIRApp {
     STX: number;
     ETX: number;
     CR: number;
-    CMD: { LAMP: number; SCAN: number; BATTERY: number; VERSION: number; TEMP: number };
+    CMD: { [key: string]: number };
     FTDI_PAYLOAD_CHUNK: number;
     FTDI_STATUS_BYTES: number;
     BLE_SVC_UUIDS: string[];
@@ -52,7 +52,6 @@ class MicroNIRApp {
     lastSpectrum: number[];
     lastScanTime: number;
     referenceData: { dark: number[] | null, white: number[] | null };
-    isTakingReference: 'dark' | 'white' | false;
     scanCounter: number;
     showAbsorbance: boolean;
     pktCount: number;
@@ -150,7 +149,6 @@ class MicroNIRApp {
         this.lastSpectrum  = [];
         this.lastScanTime  = 0;
         this.referenceData = { dark: null, white: null };
-        this.isTakingReference = false;
         this.scanCounter = 0;
         this.showAbsorbance = false;
         this.pktCount      = 0;
@@ -209,7 +207,7 @@ class MicroNIRApp {
                     y: {
                         grid: { color: 'rgba(0,0,0,0.06)' },
                         ticks: { color: '#6b7d91', font: { family: 'Share Tech Mono', size: 10 } },
-                        title: { display: true, text: 'ADC (16-bit LE)', color: '#6b7d91', font: { size: 10, family: 'Share Tech Mono' } }
+                        title: { display: true, text: 'ADC (16-bit BE)', color: '#6b7d91', font: { size: 10, family: 'Share Tech Mono' } }
                     },
                     x: {
                         grid: { color: 'rgba(0,0,0,0.06)' },
@@ -684,10 +682,8 @@ class MicroNIRApp {
     // Constantes de Control
     private readonly SUB = 0x1A; // 26
     
-    // PENDIENTE: La Trama Interna. 
-    // ¿Requerimos la PassKey de 32-bits o solo enviar CMD y DATA directo?
-    // Ensayaremos ambas opciones usando su propio codificador.
-    private PASSKEY = new Uint8Array([0x1B, 0x0D, 0x36, 0xD5]); // 3577089307
+    // Trama Interna. 
+    private PASSKEY_BIN = new Uint8Array([0x1B, 0x0D, 0x36, 0xD5]); // 3577089307
 
     // El esotérico XOR-Shift polinomial de 16-bits de JDSU
     private updateCRC(crc: number, value: number): number {
@@ -750,7 +746,7 @@ class MicroNIRApp {
         SET: 0x01
     };
 
-    PASSKEY = [0x1B, 0x0D, 0x36, 0xD5]; // Viavi PassKey con el orden físico exacto verificado por el Fuzzer.
+    PASSKEY = [0x1B, 0x0D, 0x36, 0xD5]; // Viavi PassKey
 
     createGenericGetCommand(cmdEnum: number): number[] {
         return [cmdEnum, this.PROPERTY.GET];
@@ -799,43 +795,13 @@ class MicroNIRApp {
         this.lampConfirmed = true;
         this.lampReady = true;
         this.log('✅ Lámpara Tungsteno encendida físicamente. ¡Permiso de escaneo concedido!', 'log-warn');
-        this.updateUI(); // Esto habilita el botón de escaneo
+        this.updateUI(true); // Esto habilita el botón de escaneo
     }
 
-    async scan(withLamp: boolean = true) {
-        this.log('\n--- ESCANEO OFICIAL (ARQUITECTURA DE PRESETS) ---', 'log-warn');
-        this.setLed('ADC', true, 'on-orange');
-        this.rxBuffer = [];
-        this.inPacket = false;
-        
-        if (this.heartbeatTimer) { clearInterval(this.heartbeatTimer); this.heartbeatTimer = null; }
-
-        /**
-         * NUEVA SECUENCIA VÍA PRESETS (INGENIERÍA INVERSA C#):
-         * 
-         * 1. Definir Preset de Escaneo (0 para Oscuro, 1 para Muestra/Referencia)
-         * 2. ACQUIRE_SPECTRA = 34 (0x22) enviando el PresetID en la trama  
-         * 3. SCANDATA_PACKET = 80 (0x50) (Recuperar la data en bruto)
-         */
-
-        const presetId = withLamp ? 0x01 : 0x00;
-        this.log(`Ordenando ACQUIRE_SPECTRA (0x22) con Preset ${presetId}...`, 'log-sys');
-        
-        // 2. Disparo de escáner usando Preset (Comando 0x22, PresetID, 0x00)
-        await this.sendCmdData([34, presetId, 0x00], 'scan_start_act');
-        
-        let waitTime = 1200; // 50 replicates * 10 ms = 500ms + latencia de bus
-        this.log(`Esperando exposición óptica (${waitTime}ms)...`, '');
-        await this.sleep(waitTime); 
-
-        // DETENER FLUJO CONTINUO ANTES DE LEER (Solucion al problema del buffer loca)
-        // Viavi tiene un comando NO DOCUMENTADO explícito para detener el flujo UART infinito: CMD 0x53 (83 - STOP_SCAN) o CMD 0x22 con parámetro 0xFF.
-        // Simularemos un stop cortando el preset continuo antes de leer.
-        this.log('Deteniendo ciclo continuo (HALT STREAM)...', 'log-sys');
-        await this.sendCmdData([83, 0x00], 'scan_read_wait'); // CMD 83 (Stop)
+    async scan() {
+        this.log('\n--- ESCANEO MANUAL DE MUESTRA ---', 'log-warn');
+        this.scanSample();
     }
-
-    private bleBuffer: number[] = [];
 
     async batteryPing() {
         if (!this.connected) return;
@@ -851,6 +817,7 @@ class MicroNIRApp {
     private bleBuffer: number[] = [];
     private multiPartBuffer: number[] = [];
     private waitingForMultipartCount: number = 0;
+    private multipartTimeout: any = null;
 
     onRawData(bytes: Uint8Array) {
         // --- MODO SNIFFER ACTIVO ---
@@ -865,30 +832,30 @@ class MicroNIRApp {
             this.bleBuffer.push(...Array.from(bytes));
 
             // MODIFICACIÓN: Detector de Payload Gigante Multipartes
-            // Si el buffer tiene STX adelantado y sabemos que viene el paquete GIGANTE (0x50)
             if (this.waitingForMultipartCount === 0 && this.bleBuffer.length >= 2 && this.bleBuffer[0] === this.STX && this.bleBuffer[1] === 0x50) {
-                // ¡Tenemos un SCANDATA GIGANTE en camino! (289 bytes esperados)
                 this.waitingForMultipartCount = 289; 
+                clearTimeout(this.multipartTimeout);
+                this.multipartTimeout = setTimeout(() => {
+                    if (this.waitingForMultipartCount > 0) {
+                        this.log(`❌ TIMEOUT: El paquete gigante (0x50) no se completó. Limpiando buffer.`, 'log-err');
+                        this.bleBuffer = [];
+                        this.waitingForMultipartCount = 0;
+                        this.scanTarget = false;
+                    }
+                }, 4000);
             }
 
             // Si estamos atrapando el paquete gigante
             if (this.waitingForMultipartCount > 0) {
-                // ¿Ya tenemos el paquete completo en el buffer?
                 if (this.bleBuffer.length >= this.waitingForMultipartCount) {
-                    const fullFrame = this.bleBuffer.slice(1, this.waitingForMultipartCount - 1); // Quitar STX inicial y ETX/CRC si es posible
-                    
+                    clearTimeout(this.multipartTimeout);
+                    const fullFrame = this.bleBuffer.slice(1, this.waitingForMultipartCount - 1); 
                     this.clearTimeout_();
-                    this.log(`¡Buffer Multipartes lleno! (${this.waitingForMultipartCount} bytes capturados). Procesando...`, 'log-sys');
-                    
-                    // Procesar a la mala (Directo al cerebro)
-                    this.processPacketRaw(fullFrame); // Le pasamos desde 0x50 hasta el final
-                    
-                    // Limpiar solo los bytes agarrados
+                    this.processPacketRaw(fullFrame);
                     this.bleBuffer.splice(0, this.waitingForMultipartCount);
                     this.waitingForMultipartCount = 0;
                 } else {
-                    this.log(`Esperando más chunks BLE para el espectro... van ${this.bleBuffer.length} / ${this.waitingForMultipartCount}`, 'log-debug');
-                    return; // No procesar STX/ETX normal, solo acumular
+                    return; 
                 }
             }
 
@@ -991,8 +958,7 @@ class MicroNIRApp {
                     const msg = new TextDecoder().decode(new Uint8Array(this.rxBuffer)).trim();
                     if (msg) {
                         this.clearTimeout_();
-                        this.log(`RX: ${msg}`, 'log-rx');
-                        this.parseTextResponse(msg);
+                        this.log(`RX Texto: ${msg}`, 'log-rx');
                     }
                     this.rxBuffer = [];
                 }
@@ -1079,19 +1045,22 @@ class MicroNIRApp {
             this.log(`ACK RECIBIDO (0x06). Comando [${this.lastCmdType}] FUNCIONÓ. ¡ESTE ES EL DICCIONARIO!`, 'log-warn');
             this.handleAck();
         } else if (cmd === 0x15) {
-            // Loguear siempre los NAKs si no es fuzzer extremo
             const err = payload.length > 1 ? payload[1] : 0;
             this.log(`NAK RECIBIDO. Código de Error HW: ${err} (0x${err.toString(16)})`, 'log-err');
         } else if (cmd === 0x50) { 
             // 0x50 (80) es el SCANDATA_PACKET oficial según la DLL.
             // Payload total es de 289 bytes. El byte 0 es el CMD (0x50).
-            // Luego vienen 256 bytes de espectro (128 * 2).
-            // Y 32 bytes de metadatos térmicos / HW.
+            // Recuperamos los 256 bytes de espectro (128 * 2) comenzando desde el byte 1 (Offset 1).
             const pixelData = payload.slice(1, 257); 
-            this.log(`Extraídos 256 bytes de Array de InGaAs. Enviando a Gráfica...`, 'log-warn');
+            this.log(`Extraídos 256 bytes de Array de InGaAs (Offset 1). Enviando a Gráfica...`, 'log-warn');
             this.processSpectrum(pixelData);
-        } else if (cmd === 0x53 || cmd === this.CMD.SCANDATA_PACKET) {
-            this.processSpectrum(payload.slice(1));
+        } else if (cmd === 0x53) {
+            // Manejo flexible para comando 0x53
+            if (payload.length >= 257) {
+                this.processSpectrum(payload.slice(1, 257));
+            } else {
+                this.processSpectrum(payload.slice(1));
+            }
         } else if (cmd === 0x42 || cmd === this.CMD.BATTERY) {
             const pct = payload.length > 1 ? payload[1] : 0; // Fix safe access
             const valBat = document.getElementById('valBat');
@@ -1117,118 +1086,19 @@ class MicroNIRApp {
                 if (btnScan) btnScan.disabled = false;
             }, 2500);
         } else if (this.lastCmdType === 'lamp_off') {
-            this.log('✅ Lámpara Apagada Confirmada. Esperando enfriamiento del Tungsteno (2000ms)...', 'log-sys');
-            setTimeout(() => { this.scan(false); }, 2000); // 2000ms para evitar corriente térmica remanente
-        } else if (this.lastCmdType === 'lamp_on') {
+            this.log('✅ Lámpara Apagada Confirmada. Esperando enfriamiento (2000ms)...', 'log-sys');
+            setTimeout(() => { 
+                if (this.scanTarget === 'dark') this.takeAndSleepScan(false); 
+            }, 2000); 
+        } else if (this.lastCmdType === 'lamp_on_continuous') {
             this.log('✅ Lámpara Encendida Confirmada. Esperando Estabilidad Térmica (1500ms)...', 'log-sys');
-            setTimeout(() => { this.scan(true); }, 1500); // 1500ms (_autoLampDelay) de la DLL de C#
+            setTimeout(() => { this.takeAndSleepScan(true); }, 1500); 
         } else if (this.lastCmdType === 'scan_read_wait') {
-            // Este timer evita el loop infinito: si mandamos halt_stream, esperamos y exigimos el paquete SCANDATA_PACKET
             setTimeout(() => {
                 this.log('Pidiendo SCANDATA_PACKET (80 / 0x50)...', 'log-sys');
                 this.sendCmdData([80, this.PROPERTY.GET], 'scan_read');
             }, 300);
         }
-    }
-
-    processSpectrum(raw: number[]) {
-        if (raw.length < 4) { this.log('Datos de espectro insuficientes.', 'log-warn'); return; }
-
-        const spectrum = [];
-        // CORRECCIÓN DE EMPAQUETAMIENTO A BIG ENDIAN
-        // Viavi transmite el MSB primero. Revertimos a Big Endian para eliminar el zigzag de picos.
-        for (let i = 0; i + 1 < raw.length; i += 2) {
-            spectrum.push((raw[i] << 8) | raw[i+1]); // MCU Big Endian
-        }
-
-        if (spectrum.length === 0) return;
-
-        this.lastSpectrum = spectrum;
-        this.pktCount++;
-        const valPkt = document.getElementById('valPkt');
-        if (valPkt) valPkt.textContent = `${spectrum.length} / ${this.pktCount}`;
-        this.log(`Espectro OK: ${spectrum.length} píxeles, paquete #${this.pktCount}`, '');
-        this.setLed('ADC', true, 'on-green');
-
-        let displayData: number[] = [];
-        let isWhiteCalibration = false;
-
-        // ROUTING STATE MACHINE PARA CALIBRACIÓN
-        if (this.isTakingReference === 'dark') {
-            this.referenceData.dark = [...spectrum];
-            this.log(`✓ Referencia 'DARK' guardada correctamente.`, 'log-warn');
-            this.isTakingReference = false;
-            this.updateChartStatus();
-        } else if (this.isTakingReference === 'white') {
-            this.referenceData.white = [...spectrum];
-            this.log(`✓ Referencia 'WHITE' guardada correctamente. Apagando Lámpara...`, 'log-warn');
-            this.isTakingReference = false;
-            isWhiteCalibration = true;
-            this.updateChartStatus();
-            
-            // AUTO APAGADO DE PROTECCIÓN TÉRMICA Y AHORRO DE BATERÍA
-            this.sendCmdData([0x21, 0x00, 0x00], 'lamp_off');
-        } else {
-            // ES UN ESCANEO DE MUESTRA
-            this.log(`✓ Escaneo de MUESTRA terminado. Apagando Lámpara...`, 'log-warn');
-            this.updateChartStatus();
-            
-            // AUTO APAGADO DE PROTECCIÓN TÉRMICA Y AHORRO DE BATERÍA
-            this.sendCmdData([0x21, 0x00, 0x00], 'lamp_off');
-        }
-
-        // --- MOTOR MATEMÁTICO QUIMIOMÉTRICO (Espectrometría Real) ---
-        if (this.showAbsorbance && this.referenceData.dark && this.referenceData.white) {
-            // 3. MUESTRA (ABSORBANCIA): Ley de Beer-Lambert
-            
-            // DIAGNÓSTICO: Mostramos el pixel medio (64) para entender qué está pasando
-            const midS = spectrum[64];
-            const midD = this.referenceData.dark[64];
-            const midW = this.referenceData.white[64];
-            this.log(`DIAGNÓSTICO [Pixel 64]: S=${midS}, W=${midW}, D=${midD}`, 'log-err');
-            
-            displayData = spectrum.map((S, i) => {
-                const D = this.referenceData.dark![i] || 0;
-                const W = this.referenceData.white![i] || 1; // Prevenir div by zero
-                
-                const limpio_muestra = S - D;
-                const limpio_white = W - D;
-                
-                // Evitar reflectancias negativas o infinitas 
-                let R = limpio_muestra / (limpio_white <= 0 ? 1 : limpio_white);
-                R = Math.max(R, 0.00001); // Safe Log
-
-                return -Math.log10(R); // Unidades de Absorbancia (AU)
-            });
-            this.log('Aplicada Quimiometría(Absorbancia): AU = -Log10((S - D)/(W - D))', 'log-sys');
-            this.chart.options.scales.y.title = { display: true, text: 'Absorbancia (AU)' };
-        } else if (isWhiteCalibration && this.referenceData.dark) {
-            // 2. WHITE: Gráfica de White restando Dark (Eliminar ruido térmico)
-            displayData = spectrum.map((W, i) => {
-                const D = this.referenceData.dark![i] || 0;
-                return Math.max(W - D, 0);
-            });
-            this.log('Aplicada Quimiometría(Blanco Neto): Intensidad = WHITE - DARK', 'log-sys');
-            this.chart.options.scales.y.title = { display: true, text: 'Intensidad Neta (Raw - Dark)' };
-        } else {
-            // 1. DARK o ADC crudo (si no hay referencias listas)
-            displayData = [...spectrum];
-            if (!this.showAbsorbance && this.referenceData.dark && !isWhiteCalibration && this.isTakingReference !== 'dark') {
-                // Escaneo normal pero el usuario forzó la vista "ADC crudo" manual (botón UI) -> Mostramos Neto.
-                displayData = spectrum.map((S, i) => {
-                    const D = this.referenceData.dark![i] || 0;
-                    return Math.max(S - D, 0);
-                });
-                this.log('Aplicada Quimiometría(Muestra Neta): Intensidad = MUESTRA - DARK', 'log-sys');
-                this.chart.options.scales.y.title = { display: true, text: 'Intensidad Neta (Raw - Dark)' };
-            } else {
-               this.log('Graficando ADC Crudo (Fotones InGaAs puros).', 'log-sys');
-               this.chart.options.scales.y.title = { display: true, text: 'ADC (Crudo)' };
-            }
-        }
-
-        this.updateChart(displayData, spectrum.length);
-        this.saveScan(spectrum);
     }
 
     saveScan(data: number[]) {
@@ -1301,24 +1171,41 @@ class MicroNIRApp {
         this.log('Gráfica limpiada.', 'log-sys');
     }
 
+    scanTarget: 'dark' | 'white' | 'sample' | false = false;
+
+    async takeAndSleepScan(withLamp: boolean) {
+        this.log('\n--- ESCANEO (TAKE & SLEEP) ---', 'log-warn');
+        this.setLed('ADC', true, 'on-orange');
+        this.rxBuffer = [];
+        this.inPacket = false;
+        
+        const presetId = withLamp ? 0x01 : 0x00;
+        await this.sendCmdData([34, presetId, 0x00], 'scan_start_act');
+        
+        let waitTime = 1200; 
+        this.log(`Esperando exposición óptica local (${waitTime}ms)...`, 'log-sys');
+        await this.sleep(waitTime); 
+
+        // Una vez transcurrido el tiempo físico local, pedimos que escupa un SCANDATA único
+        this.sendCmdData([80, this.PROPERTY.GET], 'scan_read_wait');
+    }
+
     setDarkReference() {
         if (!this.connected) return alert("Conecta el MicroNIR primero.");
         this.log('Iniciando CALIBRACIÓN OSCURA (Lámpara OFF)...', 'log-warn');
-        this.isTakingReference = 'dark';
-        this.showAbsorbance = false; // Forza vista ADC crudo
-        
-        // Cierra lámpara explícitamente y al recibir ACK mandará el scan
+        this.rxBuffer = [];
+        this.scanTarget = 'dark';
+        this.showAbsorbance = false;
         this.sendCmdData([0x21, 0x00, 0x00], 'lamp_off');
     }
 
     setWhiteReference() {
         if (!this.connected) return alert("Conecta el MicroNIR primero.");
         this.log('Iniciando CALIBRACIÓN BLANCA (Lámpara ON)...', 'log-warn');
-        this.isTakingReference = 'white';
-        this.showAbsorbance = false; // Forza vista ADC crudo
-        
-        // Enciende lámpara explícitamente y al recibir ACK mandará el scan
-        this.sendCmdData([0x21, 0x01, 0x00], 'lamp_on');
+        this.rxBuffer = [];
+        this.scanTarget = 'white';
+        this.showAbsorbance = false;
+        this.sendCmdData([0x21, 0x01, 0x00], 'lamp_on_continuous');
     }
 
     scanSample() {
@@ -1327,13 +1214,85 @@ class MicroNIRApp {
              return alert("Por favor toma la Oscuridad [1] y Blanco [2] antes de escanear la muestra.");
         }
         this.log('ESCANEO DE MUESTRA QUÍMICA...', 'log-warn');
-        this.isTakingReference = false;
-        this.showAbsorbance = true; // Auto-fijar absorbancia al escanear muestra
-        
-        // Verifica si la lampara está encendida.
-        // Al recibir ACK 'lamp_on', mandará el scan. Si la lámpara ya estaba prendida,
-        // esto servirá de sincronización.
-        this.sendCmdData([0x21, 0x01, 0x00], 'lamp_on');
+        this.rxBuffer = [];
+        this.scanTarget = 'sample';
+        this.showAbsorbance = true;
+        this.sendCmdData([0x21, 0x01, 0x00], 'lamp_on_continuous');
+    }
+
+    processSpectrum(raw: number[]) {
+        if (!this.scanTarget) return;
+
+        // Liberación de estado preventiva mediante try-finally para evitar bloqueos
+        try {
+            if (raw.length < 256) { 
+                this.log(`Datos insuficientes para espectro (${raw.length} bytes)`, 'log-warn'); 
+                return; 
+            }
+
+            const spectrum = [];
+            // CORRECCIÓN DE EMPAQUETAMIENTO A BIG ENDIAN (Corte alineado conservado)
+            const maxLen = Math.min(256, raw.length);
+            for (let i = 0; i < maxLen - 1; i += 2) {
+                // El MicroNIR (Viavi) manda MSB primero (Byte Superior).
+                // Aseguramos signo positivo mediante máscara de 8 bits antes del shift.
+                const val = ((raw[i] & 0xFF) << 8) | (raw[i+1] & 0xFF);
+                spectrum.push(val);
+            }
+            
+            if (spectrum.length === 0) return;
+
+            this.lastSpectrum = [...spectrum];
+            this.pktCount++;
+            const valPkt = document.getElementById('valPkt');
+            if (valPkt) valPkt.textContent = `${spectrum.length} / ${this.pktCount}`;
+            this.log(`Espectro OK: ${spectrum.length} píxeles, paquete #${this.pktCount}`, '');
+            
+            let displayData = [...spectrum];
+            const target = this.scanTarget;
+
+            // --- MOTOR MATEMÁTICO QUIMIOMÉTRICO ---
+            if (this.showAbsorbance && this.referenceData.dark && this.referenceData.white) {
+                displayData = spectrum.map((S, i) => {
+                    const D = this.referenceData.dark![i] || 0;
+                    const W = this.referenceData.white![i] || 1;
+                    const R = Math.max((S - D) / (W - D <= 0 ? 1 : W - D), 0.00001);
+                    return -Math.log10(R);
+                });
+                this.log('Aplicada Quimiometría(Absorbancia)', 'log-sys');
+                this.chart.options.scales.y.title = { display: true, text: 'Absorbancia (AU)' };
+            } else if (target === 'white' && this.referenceData.dark) {
+                displayData = spectrum.map((W, i) => Math.max(W - (this.referenceData.dark![i] || 0), 0));
+                this.log('Aplicada Quimiometría(Blanco Neto)', 'log-sys');
+                this.chart.options.scales.y.title = { display: true, text: 'Intensidad Neta (White - Dark)' };
+            } else if (target === 'sample' && this.referenceData.dark) {
+                displayData = spectrum.map((S, i) => Math.max(S - (this.referenceData.dark![i] || 0), 0));
+                this.log('Aplicada Quimiometría(Muestra Neta)', 'log-sys');
+                this.chart.options.scales.y.title = { display: true, text: 'Intensidad Neta (Raw - Dark)' };
+            } else {
+                this.chart.options.scales.y.title = { display: true, text: 'ADC (Crudo)' };
+            }
+
+            this.updateChart(displayData, spectrum.length);
+            this.saveScan(spectrum);
+            
+            // Persistencia de Referencias
+            if (target === 'white') {
+                this.referenceData.white = [...spectrum];
+                this.log("✓ Referencia 'WHITE' guardada.", "log-default");
+                this.sendCmdData([0x21, 0x00, 0x00], 'lamp_off');
+            } else if (target === 'dark') {
+                this.referenceData.dark = [...spectrum];
+                this.log("✓ Referencia 'DARK' guardada.", "log-default");
+            } else {
+                this.log('✓ Escaneo de MUESTRA terminado.', 'log-default');
+                this.sendCmdData([0x21, 0x00, 0x00], 'lamp_off');
+            }
+        } finally {
+            this.scanTarget = false;
+            this.updateChartStatus();
+            this.setLed('ADC', true, 'on-green');
+        }
     }
 
     toggleAbsorbance() {
@@ -1530,7 +1489,7 @@ export default function App() {
                         </button>
                     </div>
 
-                    <button id="btnScan" className="btn btn-scan" onClick={() => app()?.scan()} disabled>
+                    <button id="btnScan" className="btn btn-scan" onClick={() => app()?.takeAndSleepScan(true)} disabled>
                         ▶ FORZAR DISPARO DE ESCÁNER
                     </button>
 
