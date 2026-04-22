@@ -1050,10 +1050,35 @@ class MicroNIRApp {
         } else if (cmd === 0x50) { 
             // 0x50 (80) es el SCANDATA_PACKET oficial según la DLL.
             // Payload total es de 289 bytes. El byte 0 es el CMD (0x50).
-            // Recuperamos los 256 bytes de espectro (128 * 2) comenzando desde el byte 1 (Offset 1).
             const pixelData = payload.slice(1, 257); 
             this.log(`Extraídos 256 bytes de Array de InGaAs (Offset 1). Enviando a Gráfica...`, 'log-warn');
             this.processSpectrum(pixelData);
+
+            // EXTRACCIÓN DE TELEMETRÍA (Metadata bytes 257-288)
+            if (payload.length >= 288) {
+                // 1. Integración ADC (Microsegundos en Offset 272-273)
+                // Log: ... 27 10 ... -> 0x2710 = 10000 -> 10ms
+                const iRaw = payload[272] | (payload[273] << 8);
+                const valExp = document.getElementById('valExp');
+                if (valExp && iRaw > 0) valExp.textContent = `${(iRaw/1000).toFixed(1)} ms`;
+
+                // 2. Batería detectada en Offset 278-279 (mV * 10)
+                const vRaw = payload[278] | (payload[279] << 8);
+                const vBat = vRaw / 10; 
+                if (vBat > 2000 && vBat < 5000) {
+                    const pct = Math.min(Math.max(Math.round((vBat - 3400) / (4200 - 3400) * 100), 0), 100);
+                    const elBat = document.getElementById('valBat');
+                    if (elBat) elBat.textContent = `${pct}% (${vBat.toFixed(0)}mV)`;
+                }
+
+                // 3. Temperatura detectada en Offset 274-275
+                const tRaw = payload[274] | (payload[275] << 8);
+                if (tRaw > 100 && tRaw < 800) {
+                    const tempC = tRaw / 10;
+                    const elTemp = document.getElementById('valTemp');
+                    if (elTemp) elTemp.textContent = `${tempC.toFixed(1)}°C`;
+                }
+            }
         } else if (cmd === 0x53) {
             // Manejo flexible para comando 0x53
             if (payload.length >= 257) {
