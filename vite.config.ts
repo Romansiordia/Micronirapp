@@ -13,8 +13,8 @@ export default defineConfig(({mode}) => {
       VitePWA({
         registerType: 'autoUpdate',
         manifest: {
-          name: 'MicroNIR QualiControl v6',
-          short_name: 'MicroNIR',
+          name: 'SpectraNir',
+          short_name: 'SpectraNir',
           description: 'Control de Calidad Espectroscópico MicroNIR',
           theme_color: '#0f172a',
           icons: [

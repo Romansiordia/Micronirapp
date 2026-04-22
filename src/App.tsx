@@ -1420,7 +1420,7 @@ export default function App() {
                         </svg>
                     </div>
                     <div>
-                        <div className="logo-text">Micro<em>NIR</em> QualiControl</div>
+                        <div className="logo-text">Spectra<em>Nir</em></div>
                         <div className="logo-sub">HARDWARE ORCHESTRATOR v6.0 · FTDI PROTOCOL</div>
                     </div>
                 </div>
