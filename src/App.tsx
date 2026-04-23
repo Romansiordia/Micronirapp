@@ -67,13 +67,15 @@ class MicroNIRApp {
     lampConfirmed: boolean;
     ignoreRxUntil: number;
     VAL: { ON: number; OFF: number };
-    history: { id: string, name: string, data: number[], time: number }[];
+    history: { id: string, name: string, lot?: string, data: number[], time: number }[];
+    sampleData: { id: string; name: string; lot: string };
 
     constructor() {
         this.STX = 0x02;
         this.ETX = 0x03;
         this.CR  = 0x0D;
-
+        this.sampleData = { id: '', name: '', lot: '' };
+        
         this.CMD = {
             // Comandos Historicos Ascii Obsoletos
             LAMP:    0x4C,
@@ -1122,9 +1124,11 @@ class MicroNIRApp {
     }
 
     saveScan(data: number[]) {
+        const isSample = this.scanTarget === 'sample';
         const scan = {
-            id: (Math.random() * 100000).toString(36),
-            name: `Escaneo ${this.history.length + 1}`,
+            id: isSample ? (this.sampleData.id || "N/A") : (Math.random() * 1000).toString(36),
+            name: isSample ? (this.sampleData.name || "Muestra") : `Ref_${this.scanTarget}`,
+            lot: isSample ? (this.sampleData.lot || "") : "",
             data: [...data],
             time: Date.now()
         };
@@ -1157,7 +1161,8 @@ class MicroNIRApp {
             div.className = 'history-item';
             div.innerHTML = `
                 <div class="h-info">
-                    <div class="h-name">${h.name}</div>
+                    <div class="h-name">${h.name} <span style="font-size:0.55rem; color:var(--dim)">[${h.id}]</span></div>
+                    ${h.lot ? `<div class="h-lot" style="font-size:0.6rem; color:var(--orange)">Lote: ${h.lot}</div>` : ''}
                     <div class="h-date">${new Date(h.time).toLocaleTimeString()}</div>
                 </div>
                 <div class="h-btns" style="display:flex; gap:4px">
@@ -1262,12 +1267,17 @@ class MicroNIRApp {
         this.sendCmdData([0x21, 0x01, 0x00], 'lamp_on_continuous');
     }
 
-    scanSample() {
+    async scanSample() {
         if (!this.connected) return alert("Conecta el MicroNIR primero.");
         if (!this.referenceData.dark || !this.referenceData.white) {
              return alert("Por favor toma la Oscuridad [1] y Blanco [2] antes de escanear la muestra.");
         }
-        this.log('═══ ANÁLISIS MULTI-PUNTO (4 ESCANEOS -> 1 PROMEDIO) ═══', 'log-warn');
+
+        const data = await this.promptSampleData();
+        if (!data) return; // Cancelado
+        this.sampleData = data;
+
+        this.log(`═══ ANALIZANDO: ${this.sampleData.name} (ID: ${this.sampleData.id}) ═══`, 'log-warn');
         this.rxBuffer = [];
         this.scanTarget = 'sample';
         this.showAbsorbance = true;
@@ -1445,12 +1455,15 @@ class MicroNIRApp {
             return nm.toFixed(4); // 4 decimales para máxima compatibilidad
         });
         
-        const header = ["Sample Name", ...wavelengths, "Serial Number", "User Name", "Temperature", "Integration Time (ms)", "Replicates"];
+        const header = ["Sample Name", "Sample ID", "Lot/Info", ...wavelengths, "Serial Number", "User Name", "Temperature", "Integration Time (ms)", "Replicates"];
         
+        const sampleName = this.sampleData.name || 'Muestra';
+        const sampleId = this.sampleData.id || 'N/A';
+        const lotInfo = this.sampleData.lot || 'N/A';
+
         // Extraer valores actuales de la UI
         const temp = document.getElementById('valTemp')?.textContent?.replace('°C', '') || "25.0";
         const exp = document.getElementById('valExp')?.textContent?.replace(' ms', '') || "12.5";
-        const sampleName = `Scan_${new Date().toISOString().replace(/[:.]/g, '-')}`;
         
         // Calcular absorbancia si hay referencias
         const dataRow = this.lastSpectrum.map((S, i) => {
@@ -1465,6 +1478,8 @@ class MicroNIRApp {
 
         const row = [
             sampleName,
+            sampleId,
+            lotInfo,
             ...dataRow,
             "M1-0000343", 
             "SpectraNir User",
@@ -1485,6 +1500,52 @@ class MicroNIRApp {
         document.body.removeChild(link);
         
         this.log('✓ CSV exportado con formato compatible Viavi.', 'log-default');
+    }
+
+    promptSampleData(): Promise<{ id: string, name: string, lot: string } | null> {
+        return new Promise(resolve => {
+            const modal = document.getElementById('sampleModal');
+            const inId = document.getElementById('sampleIdInput') as HTMLInputElement;
+            const inName = document.getElementById('sampleNameInput') as HTMLInputElement;
+            const inLot = document.getElementById('sampleLotInput') as HTMLInputElement;
+            
+            if (!modal || !inId || !inName || !inLot) { resolve(null); return; }
+            
+            // Limpiar valores previos
+            inId.value = '';
+            inName.value = '';
+            inLot.value = '';
+            
+            modal.style.display = 'flex';
+            setTimeout(() => inId.focus(), 80);
+
+            const ok = () => {
+                const id = inId.value.trim();
+                const name = inName.value.trim();
+                const lot = inLot.value.trim();
+                
+                if (!id || !name) {
+                    alert("ID y Nombre son obligatorios");
+                    return;
+                }
+                
+                modal.style.display = 'none';
+                resolve({ id, name, lot });
+            };
+            
+            const cancel = () => { modal.style.display = 'none'; resolve(null); };
+
+            const btnOk = document.getElementById('btnSampleOk');
+            const btnCancel = document.getElementById('btnSampleCancel');
+            if (btnOk) btnOk.onclick = ok;
+            if (btnCancel) btnCancel.onclick = cancel;
+            
+            const keyHandler = (e: KeyboardEvent) => {
+                if (e.key === 'Enter') ok();
+                if (e.key === 'Escape') cancel();
+            };
+            inId.onkeydown = inName.onkeydown = inLot.onkeydown = keyHandler;
+        });
     }
 
     promptUUID(): Promise<string | null> {
@@ -1723,6 +1784,30 @@ export default function App() {
                         </div>
                     </div>
                 </main>
+            </div>
+
+            <div className="modal-overlay" id="sampleModal">
+                <div className="modal" style={{ maxWidth: '400px' }}>
+                    <h3>Información de la Muestra</h3>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', marginTop: '10px' }}>
+                        <div style={{ textAlign: 'left' }}>
+                            <label style={{ fontSize: '0.7rem', color: 'var(--dim)', display: 'block', marginBottom: '4px' }}>ID Muestra (*)</label>
+                            <input id="sampleIdInput" type="text" placeholder="Ej: 001" style={{ width: '100%', background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '4px', padding: '8px' }} />
+                        </div>
+                        <div style={{ textAlign: 'left' }}>
+                            <label style={{ fontSize: '0.7rem', color: 'var(--dim)', display: 'block', marginBottom: '4px' }}>Nombre Muestra (*)</label>
+                            <input id="sampleNameInput" type="text" placeholder="Ej: Harina de Soja" style={{ width: '100%', background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '4px', padding: '8px' }} />
+                        </div>
+                        <div style={{ textAlign: 'left' }}>
+                            <label style={{ fontSize: '0.7rem', color: 'var(--dim)', display: 'block', marginBottom: '4px' }}>Lote y/o inf</label>
+                            <input id="sampleLotInput" type="text" placeholder="Ej: Lote 2024-A" style={{ width: '100%', background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '4px', padding: '8px' }} />
+                        </div>
+                    </div>
+                    <div className="modal-btns" style={{ marginTop: '20px' }}>
+                        <button className="btn btn-primary" id="btnSampleOk">Iniciar Análisis</button>
+                        <button className="btn btn-ghost-red" id="btnSampleCancel">Cancelar</button>
+                    </div>
+                </div>
             </div>
 
             <div className="modal-overlay" id="uuidModal">
