@@ -268,7 +268,7 @@ class MicroNIRApp {
 
     updateUI(on: boolean) {
         this.connected = on;
-        ['btnWarm','btnBat','btnDisc','btnScan'].forEach(id => {
+        ['btnDisc'].forEach(id => {
             const el = document.getElementById(id) as HTMLButtonElement;
             if (el) el.disabled = !on;
         });
@@ -777,36 +777,6 @@ class MicroNIRApp {
 
     private isFuzzingLamp: boolean = false;
 
-    async lampOn() {
-        if (this.lampConfirmed) return;
-        this.log('\n--- ENCENDIDO DE LÁMPARA (PRUEBA MANUAL) ---', 'log-warn');
-        this.setLed('LAMP', true, 'on-orange');
-        this.lampReady = false;
-        
-        if (this.heartbeatTimer) {
-            clearInterval(this.heartbeatTimer);
-            this.heartbeatTimer = null;
-        }
-
-        // [0x21, 0x01, 0x00] es ON según ingeniería inversa
-        const payload = [0x21, 0x01, 0x00];
-        await this.sendCmdData(payload, 'lamp');
-
-        // PAUSA TÉRMICA Y MÓDULO INDICADOR
-        this.log('⏳ Comando enviado. Esperando estabilización térmica del Tungsteno (2.5s)...', 'log-sys');
-        await this.sleep(2500);
-
-        this.lampConfirmed = true;
-        this.lampReady = true;
-        this.log('✅ Lámpara Tungsteno encendida físicamente. ¡Permiso de escaneo concedido!', 'log-warn');
-        this.updateUI(true); // Esto habilita el botón de escaneo
-    }
-
-    async scan() {
-        this.log('\n--- ESCANEO MANUAL DE MUESTRA ---', 'log-warn');
-        this.scanSample();
-    }
-
     async batteryPing() {
         if (!this.connected) return;
         this.log('\n--- DIAGNÓSTICO BATERÍA ---', 'log-warn');
@@ -1123,8 +1093,6 @@ class MicroNIRApp {
                 this.lampConfirmed = true;
                 this.setLed('LAMP', true, 'on-green');
                 this.log('✅ Lámpara Tungsteno encendida físicamente. ¡Permiso de escaneo concedido!', 'log-default');
-                const btnScan = document.getElementById('btnScan') as HTMLButtonElement;
-                if (btnScan) btnScan.disabled = false;
             }, 2500);
         } else if (this.lastCmdType === 'lamp_off_wait') {
             this.log('✅ Lámpara Apagada. Esperando enfriamiento térmico (2500ms)...', 'log-sys');
@@ -1655,19 +1623,7 @@ export default function App() {
                     </div>
 
                     <div className="btn-row">
-                        <button id="btnWarm" className="btn btn-ghost-orange" onClick={() => app()?.lampOn()} disabled>
-                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="5"/><line x1="12" y1="2" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="22"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="2" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="22" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
-                            Lámpara
-                        </button>
-                        <button id="btnBat" className="btn btn-ghost-green" onClick={() => app()?.batteryPing()} disabled>
-                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="2" y="7" width="16" height="10" rx="1"/><line x1="22" y1="10" x2="22" y2="14"/></svg>
-                            Batería (DLL)
-                        </button>
                     </div>
-
-                    <button id="btnScan" className="btn btn-scan" onClick={() => app()?.takeAndSleepScan(true)} disabled>
-                        ▶ FORZAR DISPARO DE ESCÁNER
-                    </button>
 
                     <div className="history-section">
                         <div className="history-hdr">
@@ -1679,8 +1635,8 @@ export default function App() {
                         </div>
                     </div>
 
-                    <button id="btnDisc" className="btn btn-ghost-red" onClick={() => app()?.disconnect()} disabled style={{fontSize:'.7rem', padding:'7px'}}>
-                        Desconectar
+                    <button id="btnDisc" className="btn btn-danger" onClick={() => app()?.disconnect()} disabled style={{ marginTop: '10px' }}>
+                        DESCONECTAR EQUIPO
                     </button>
                 </aside>
 
@@ -1763,12 +1719,6 @@ export default function App() {
                             </div>
                             <div className="console" id="console" style={{ fontSize: '13px', lineHeight: '1.4' }}>
                                 <div className="log-sys">{'>'} MicroNIR Controller v6.0 — Modo Producción.</div>
-                            </div>
-                        </div>
-                        <div className="console-wrap" style={{ display: 'flex', flexDirection: 'column' }}>
-                            <div className="sec-label">Monitor de Datos Crudos (Hex)</div>
-                            <div className="console raw-console" id="rawMonitor" style={{ fontSize: '13px', lineHeight: '1.4' }}>
-                                <div className="dim-text">Esperando datos rx...</div>
                             </div>
                         </div>
                     </div>

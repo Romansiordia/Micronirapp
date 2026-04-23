@@ -196,6 +196,20 @@ header {
 .btn-ghost-orange:hover:not(:disabled) { background: rgba(255,140,66,.08); }
 .btn-ghost-red    { background: transparent; border: 1px solid var(--red); color: var(--red); }
 .btn-ghost-red:hover:not(:disabled) { background: rgba(255,71,87,.08); }
+
+.btn-danger {
+    background: transparent;
+    border: 1.5px solid var(--red);
+    color: var(--red);
+    font-weight: 800;
+    transition: all 0.2s ease;
+}
+.btn-danger:hover:not(:disabled) {
+    background: var(--red);
+    color: #fff;
+    box-shadow: 0 0 15px rgba(255, 71, 87, 0.3);
+}
+
 .btn-scan { background: var(--green); color: #fff; font-size: .9rem; font-weight: 800; padding: 13px; }
 .btn-scan:hover:not(:disabled) { background: #22ffb5; }
 .btn-row { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
