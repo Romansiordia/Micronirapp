@@ -55,6 +55,9 @@ class MicroNIRApp {
     scanCounter: number;
     showAbsorbance: boolean;
     pktCount: number;
+    scansToAverage: number = 4;
+    multiScanBuffer: number[][] = [];
+    isAveragingInProgress: boolean = false;
     responseTimeout: any;
     TIMEOUT_MS: number;
     lastCmdType: string | null;
@@ -166,8 +169,8 @@ class MicroNIRApp {
     initChart() {
         const ctx = (document.getElementById('nirChart') as HTMLCanvasElement).getContext('2d');
         if (!ctx) return;
-        const labels = Array.from({length: 128}, (_, i) =>
-            Math.round(908 + i * (1676 - 908) / 127)
+        const labels = Array.from({length: 125}, (_, i) =>
+            (908.1 + i * 6.19435).toFixed(2)
         );
 
         this.chart = new Chart(ctx, {
@@ -747,6 +750,7 @@ class MicroNIRApp {
     };
 
     PASSKEY = [0x1B, 0x0D, 0x36, 0xD5]; // Viavi PassKey
+    HW_REPS = 50; 
 
     createGenericGetCommand(cmdEnum: number): number[] {
         return [cmdEnum, this.PROPERTY.GET];
@@ -1033,9 +1037,18 @@ class MicroNIRApp {
 
         const cmd = payload[0];
 
-        if (rxLsb !== expectedLsb || rxMsb !== expectedMsb) {
-            this.log(`⚠ CRC Error en 0x${cmd.toString(16)}. RX:${rxLsb.toString(16).padStart(2,'0')}${rxMsb.toString(16).padStart(2,'0')} != CALC:${expectedLsb.toString(16).padStart(2,'0')}${expectedMsb.toString(16).padStart(2,'0')}`, 'log-err');
+        // Validar si es un NAK (0x15) con payload de 1 o 2 bytes
+        if (cmd === 0x15) {
+            const err = payload.length > 1 ? payload[1] : unstuffed[1]; 
+            this.log(`NAK RECIBIDO. Código de Error HW: ${err} (0x${err.toString(16)})`, 'log-err');
             return;
+        }
+
+        if (rxLsb !== expectedLsb || rxMsb !== expectedMsb) {
+            if (cmd !== 0x15) { // Los NAK a veces tienen CRC corto
+                this.log(`⚠ CRC Error en 0x${cmd.toString(16)}. RX:${rxLsb.toString(16).padStart(2,'0')}${rxMsb.toString(16).padStart(2,'0')} != CALC:${expectedLsb.toString(16).padStart(2,'0')}${expectedMsb.toString(16).padStart(2,'0')}`, 'log-err');
+                return;
+            }
         }
 
         this.log(`📥 [OK] CRC Validado | CMD = 0x${cmd.toString(16).toUpperCase()} | Len = ${payload.length}`, 'log-rx');
@@ -1057,18 +1070,21 @@ class MicroNIRApp {
             // EXTRACCIÓN DE TELEMETRÍA (Metadata bytes 257-288)
             if (payload.length >= 288) {
                 // 1. Integración ADC (Microsegundos en Offset 272-273)
-                // Log: ... 27 10 ... -> 0x2710 = 10000 -> 10ms
+                // Log: ... 27 10 ... -> 0x2710 = 10000 -> 12.5ms según CSV usuario
                 const iRaw = payload[272] | (payload[273] << 8);
                 const valExp = document.getElementById('valExp');
-                if (valExp && iRaw > 0) valExp.textContent = `${(iRaw/1000).toFixed(1)} ms`;
+                if (valExp && iRaw > 0) {
+                    const expMs = (iRaw * 12.5 / 10000).toFixed(1);
+                    valExp.textContent = `${expMs} ms`;
+                }
 
-                // 2. Batería detectada en Offset 278-279 (mV * 10)
+                // 2. Voltaje detectado en Offset 278-279 (mV)
                 const vRaw = payload[278] | (payload[279] << 8);
-                const vBat = vRaw / 10; 
-                if (vBat > 2000 && vBat < 5000) {
-                    const pct = Math.min(Math.max(Math.round((vBat - 3400) / (4200 - 3400) * 100), 0), 100);
+                const vBat = vRaw / 10; // Convertir a mV si viene en unidades de 10
+                if (vBat > 500) {
+                    const volts = (vBat / 1000).toFixed(2);
                     const elBat = document.getElementById('valBat');
-                    if (elBat) elBat.textContent = `${pct}% (${vBat.toFixed(0)}mV)`;
+                    if (elBat) elBat.textContent = `${volts} V`;
                 }
 
                 // 3. Temperatura detectada en Offset 274-275
@@ -1110,6 +1126,17 @@ class MicroNIRApp {
                 const btnScan = document.getElementById('btnScan') as HTMLButtonElement;
                 if (btnScan) btnScan.disabled = false;
             }, 2500);
+        } else if (this.lastCmdType === 'lamp_off_wait') {
+            this.log('✅ Lámpara Apagada. Esperando enfriamiento térmico (2500ms)...', 'log-sys');
+            setTimeout(() => { 
+                if (this.scanTarget === 'dark') this.takeAndSleepScan(false); 
+            }, 2500); 
+        } else if (this.lastCmdType === 'lamp_off_hard') {
+            this.log('✅ Comando 0x4C (Hard Lamp Off) Confirmado.', 'log-sys');
+            this.log('Esperando enfriamiento del filamento (2500ms)...', 'log-warn');
+            setTimeout(() => { 
+                if (this.scanTarget === 'dark') this.takeAndSleepScan(false); 
+            }, 2500); 
         } else if (this.lastCmdType === 'lamp_off') {
             this.log('✅ Lámpara Apagada Confirmada. Esperando enfriamiento (2000ms)...', 'log-sys');
             setTimeout(() => { 
@@ -1179,13 +1206,32 @@ class MicroNIRApp {
         });
     }
 
-    updateChart(data: number[], pixelCount = 128) {
-        const labels = Array.from({length: pixelCount}, (_, i) =>
-            Math.round(908 + i * (1676 - 908) / (pixelCount - 1))
-        );
+    updateChart(data: number[], pixelCount = 125) {
+        // Alineación Lineal Exacta basada en el CSV oficial M1-0000343
+        // Rango: 908.1nm - 1676.2nm en 125 puntos (paso de ~6.19435nm)
+        const labels = Array.from({length: pixelCount}, (_, i) => {
+            const nm = 908.1 + (6.19435 * i);
+            return nm.toFixed(2);
+        });
         this.chart.data.labels = labels;
         this.chart.data.datasets[0].data = data;
-        this.chart.update();
+
+        // --- LÓGICA DE AUTO-ESCALA PARA DARK SCAN ---
+        if (this.scanTarget === 'dark' && !this.showAbsorbance) {
+            const min = Math.min(...data);
+            const max = Math.max(...data);
+            const padding = (max - min) * 0.2 || 10;
+            this.chart.options.scales.y.suggestedMin = Math.floor(min - padding);
+            this.chart.options.scales.y.suggestedMax = Math.ceil(max + padding);
+        } else if (this.showAbsorbance) {
+            this.chart.options.scales.y.suggestedMin = -0.01;
+            this.chart.options.scales.y.suggestedMax = undefined;
+        } else {
+            this.chart.options.scales.y.suggestedMin = 0;
+            this.chart.options.scales.y.suggestedMax = 65535;
+        }
+
+        this.chart.update('none');
     }
 
     clearChart() {
@@ -1198,38 +1244,53 @@ class MicroNIRApp {
 
     scanTarget: 'dark' | 'white' | 'sample' | false = false;
 
+    HW_REPS = 100; 
+
     async takeAndSleepScan(withLamp: boolean) {
-        this.log('\n--- ESCANEO (TAKE & SLEEP) ---', 'log-warn');
+        this.log(`\n--- ESCANEO MECÁNICO DE PRECISIÓN (${this.HW_REPS} Reps) ---`, 'log-warn');
         this.setLed('ADC', true, 'on-orange');
         this.rxBuffer = [];
         this.inPacket = false;
         
+        // Configuración de 2 segundos de integración térmica
+        this.log(`Configurando integración interna: ${this.HW_REPS} reps...`, 'log-sys');
+        const configPayload = this.createGenericSetUintCommandWithPasskey(53, this.HW_REPS);
+        await this.sendCmdData(configPayload, 'config_hw_reps');
+        await this.sleep(150);
+
         const presetId = withLamp ? 0x01 : 0x00;
         await this.sendCmdData([34, presetId, 0x00], 'scan_start_act');
         
-        let waitTime = 1200; 
-        this.log(`Esperando exposición óptica local (${waitTime}ms)...`, 'log-sys');
+        const waitTime = 2000; 
+        this.log(`Integrando espectro... (LED Amarillo encendido ${waitTime}ms)`, 'log-sys');
         await this.sleep(waitTime); 
 
-        // Una vez transcurrido el tiempo físico local, pedimos que escupa un SCANDATA único
         this.sendCmdData([80, this.PROPERTY.GET], 'scan_read_wait');
     }
 
     setDarkReference() {
         if (!this.connected) return alert("Conecta el MicroNIR primero.");
-        this.log('Iniciando CALIBRACIÓN OSCURA (Lámpara OFF)...', 'log-warn');
+        this.log('═══ CALIBRACIÓN OSCURA (DARK SCAN) ═══', 'log-warn');
         this.rxBuffer = [];
         this.scanTarget = 'dark';
         this.showAbsorbance = false;
-        this.sendCmdData([0x21, 0x00, 0x00], 'lamp_off');
+        this.isAveragingInProgress = false; 
+        this.multiScanBuffer = [];
+
+        this.log('Apagando lámpara (Modo 0x21)...', 'log-sys');
+        this.sendCmdData([0x21, 0x00, 0x00], 'lamp_off_wait');
     }
 
     setWhiteReference() {
         if (!this.connected) return alert("Conecta el MicroNIR primero.");
-        this.log('Iniciando CALIBRACIÓN BLANCA (Lámpara ON)...', 'log-warn');
+        this.log('═══ CALIBRACIÓN BLANCA (WHITE SCAN) ═══', 'log-warn');
         this.rxBuffer = [];
         this.scanTarget = 'white';
         this.showAbsorbance = false;
+        this.isAveragingInProgress = false;
+        this.multiScanBuffer = [];
+        
+        this.log('Activando Lámpara para Referencia Blanca...', 'log-sys');
         this.sendCmdData([0x21, 0x01, 0x00], 'lamp_on_continuous');
     }
 
@@ -1238,45 +1299,101 @@ class MicroNIRApp {
         if (!this.referenceData.dark || !this.referenceData.white) {
              return alert("Por favor toma la Oscuridad [1] y Blanco [2] antes de escanear la muestra.");
         }
-        this.log('ESCANEO DE MUESTRA QUÍMICA...', 'log-warn');
+        this.log('═══ ANÁLISIS MULTI-PUNTO (4 ESCANEOS -> 1 PROMEDIO) ═══', 'log-warn');
         this.rxBuffer = [];
         this.scanTarget = 'sample';
         this.showAbsorbance = true;
+        
+        this.scansToAverage = 4;
+        this.isAveragingInProgress = true;
+        this.multiScanBuffer = [];
+        
+        const progContainer = document.getElementById('progressContainer');
+        if (progContainer) {
+            progContainer.style.display = 'block';
+            this.updateProgress(0);
+        }
+
         this.sendCmdData([0x21, 0x01, 0x00], 'lamp_on_continuous');
+    }
+
+    updateProgress(current: number) {
+        const per = Math.round((current / this.scansToAverage) * 100);
+        const bar = document.getElementById('progressBar');
+        const txt = document.getElementById('progressText');
+        if (bar) bar.style.width = `${per}%`;
+        if (txt) txt.textContent = `${per}%`;
     }
 
     processSpectrum(raw: number[]) {
         if (!this.scanTarget) return;
 
-        // Liberación de estado preventiva mediante try-finally para evitar bloqueos
         try {
             if (raw.length < 256) { 
                 this.log(`Datos insuficientes para espectro (${raw.length} bytes)`, 'log-warn'); 
                 return; 
             }
 
-            const spectrum = [];
-            // CORRECCIÓN DE EMPAQUETAMIENTO A BIG ENDIAN (Corte alineado conservado)
+            let spectrum: number[] = [];
+            let saturatedCount = 0;
             const maxLen = Math.min(256, raw.length);
             for (let i = 0; i < maxLen - 1; i += 2) {
-                // El MicroNIR (Viavi) manda MSB primero (Byte Superior).
-                // Aseguramos signo positivo mediante máscara de 8 bits antes del shift.
                 const val = ((raw[i] & 0xFF) << 8) | (raw[i+1] & 0xFF);
-                spectrum.push(val);
+                if (spectrum.length < 125) {
+                    spectrum.push(val);
+                }
+                if (val >= 65530 && i < 60) saturatedCount++; 
+            }
+            
+            if (saturatedCount > 3) {
+                this.log('⚠️ ALERTA DE SATURACIÓN!', 'log-warn');
             }
             
             if (spectrum.length === 0) return;
+
+            // --- LÓGICA DE PROMEDIADO MULTI-PUNTO (4 Escaneos para Muestra) ---
+            if (this.isAveragingInProgress && this.scanTarget === 'sample') {
+                this.multiScanBuffer.push([...spectrum]);
+                this.updateProgress(this.multiScanBuffer.length);
+                
+                if (this.multiScanBuffer.length < this.scansToAverage) {
+                    this.log(`✓ Punto ${this.multiScanBuffer.length}/4 capturado. MUEVE LA MUESTRA...`, 'log-warn');
+                    setTimeout(() => {
+                        this.takeAndSleepScan_Auto(true);
+                    }, 2000); 
+                    return; 
+                } else {
+                    this.log('Σ Calculando promedio final de los 4 puntos...', 'log-warn');
+                    const averaged = new Array(125).fill(0);
+                    for (let i = 0; i < 125; i++) {
+                        let sum = 0;
+                        for (let s = 0; s < 4; s++) sum += this.multiScanBuffer[s][i];
+                        averaged[i] = sum / 4;
+                    }
+                    spectrum = [...averaged];
+                    this.isAveragingInProgress = false;
+                    this.multiScanBuffer = [];
+                    const progContainer = document.getElementById('progressContainer');
+                    if (progContainer) progContainer.style.display = 'none';
+                }
+            }
+
+            // --- SUAVIZADO DIGITAL ---
+            const smoothed = [...spectrum];
+            for (let i = 1; i < smoothed.length - 1; i++) {
+                smoothed[i] = (spectrum[i-1] + spectrum[i] + spectrum[i+1]) / 3;
+            }
+            spectrum = smoothed;
 
             this.lastSpectrum = [...spectrum];
             this.pktCount++;
             const valPkt = document.getElementById('valPkt');
             if (valPkt) valPkt.textContent = `${spectrum.length} / ${this.pktCount}`;
-            this.log(`Espectro OK: ${spectrum.length} píxeles, paquete #${this.pktCount}`, '');
+            this.log(`Espectro Recibido (${this.HW_REPS} reps de hardware).`, 'log-sys');
             
             let displayData = [...spectrum];
             const target = this.scanTarget;
 
-            // --- MOTOR MATEMÁTICO QUIMIOMÉTRICO ---
             if (this.showAbsorbance && this.referenceData.dark && this.referenceData.white) {
                 displayData = spectrum.map((S, i) => {
                     const D = this.referenceData.dark![i] || 0;
@@ -1284,15 +1401,12 @@ class MicroNIRApp {
                     const R = Math.max((S - D) / (W - D <= 0 ? 1 : W - D), 0.00001);
                     return -Math.log10(R);
                 });
-                this.log('Aplicada Quimiometría(Absorbancia)', 'log-sys');
                 this.chart.options.scales.y.title = { display: true, text: 'Absorbancia (AU)' };
             } else if (target === 'white' && this.referenceData.dark) {
                 displayData = spectrum.map((W, i) => Math.max(W - (this.referenceData.dark![i] || 0), 0));
-                this.log('Aplicada Quimiometría(Blanco Neto)', 'log-sys');
                 this.chart.options.scales.y.title = { display: true, text: 'Intensidad Neta (White - Dark)' };
             } else if (target === 'sample' && this.referenceData.dark) {
                 displayData = spectrum.map((S, i) => Math.max(S - (this.referenceData.dark![i] || 0), 0));
-                this.log('Aplicada Quimiometría(Muestra Neta)', 'log-sys');
                 this.chart.options.scales.y.title = { display: true, text: 'Intensidad Neta (Raw - Dark)' };
             } else {
                 this.chart.options.scales.y.title = { display: true, text: 'ADC (Crudo)' };
@@ -1301,7 +1415,6 @@ class MicroNIRApp {
             this.updateChart(displayData, spectrum.length);
             this.saveScan(spectrum);
             
-            // Persistencia de Referencias
             if (target === 'white') {
                 this.referenceData.white = [...spectrum];
                 this.log("✓ Referencia 'WHITE' guardada.", "log-default");
@@ -1309,15 +1422,27 @@ class MicroNIRApp {
             } else if (target === 'dark') {
                 this.referenceData.dark = [...spectrum];
                 this.log("✓ Referencia 'DARK' guardada.", "log-default");
-            } else {
-                this.log('✓ Escaneo de MUESTRA terminado.', 'log-default');
+            } else if (target === 'sample') {
+                this.log('✓ Análisis completado.', 'log-default');
                 this.sendCmdData([0x21, 0x00, 0x00], 'lamp_off');
             }
         } finally {
-            this.scanTarget = false;
-            this.updateChartStatus();
-            this.setLed('ADC', true, 'on-green');
+            if (!this.isAveragingInProgress) {
+                this.scanTarget = false;
+                this.updateChartStatus();
+                this.setLed('ADC', true, 'on-green');
+            }
         }
+    }
+
+    async takeAndSleepScan_Auto(withLamp: boolean) {
+        this.rxBuffer = [];
+        this.inPacket = false;
+        this.setLed('ADC', true, 'on-orange');
+        const presetId = withLamp ? 0x01 : 0x00;
+        await this.sendCmdData([34, presetId, 0x00], 'scan_start_act');
+        await this.sleep(2000); 
+        this.sendCmdData([80, this.PROPERTY.GET], 'scan_read_wait');
     }
 
     toggleAbsorbance() {
@@ -1344,28 +1469,54 @@ class MicroNIRApp {
     }
 
     exportCSV() {
-        if (!this.lastSpectrum.length) { this.log('Sin datos.', 'log-warn'); return; }
-        const rows = ['wavelength_nm,intensity_16bit,absorbance'].concat(
-            this.lastSpectrum.map((S, i) => {
-                const nm  = Math.round(908 + i * (1676 - 908) / 127);
-                let abs = '';
-                
-                if (this.referenceData.dark && this.referenceData.white) {
-                    const D = this.referenceData.dark[i] || 0;
-                    const W = this.referenceData.white[i] || 1;
-                    let R = (S - D) / ((W - D) === 0 ? 1 : (W - D));
-                    R = Math.max(R, 0.0001);
-                    abs = (-Math.log10(R)).toFixed(5);
-                }
-                
-                return `${nm},${S},${abs}`;
-            })
-        );
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(new Blob([rows.join('\n')], {type:'text/csv'}));
-        a.download = `micronir_${Date.now()}.csv`;
-        a.click();
-        this.log('CSV exportado.', '');
+        if (!this.lastSpectrum.length) { this.log('Sin datos para exportar.', 'log-warn'); return; }
+        
+        // Cabeceras: 125 Longitudes de onda con ajuste lineal exacto
+        const wavelengths = Array.from({length: 125}, (_, i) => {
+            const nm = 908.1 + (6.19435 * i);
+            return nm.toFixed(4); // 4 decimales para máxima compatibilidad
+        });
+        
+        const header = ["Sample Name", ...wavelengths, "Serial Number", "User Name", "Temperature", "Integration Time (ms)", "Replicates"];
+        
+        // Extraer valores actuales de la UI
+        const temp = document.getElementById('valTemp')?.textContent?.replace('°C', '') || "25.0";
+        const exp = document.getElementById('valExp')?.textContent?.replace(' ms', '') || "12.5";
+        const sampleName = `Scan_${new Date().toISOString().replace(/[:.]/g, '-')}`;
+        
+        // Calcular absorbancia si hay referencias
+        const dataRow = this.lastSpectrum.map((S, i) => {
+            if (this.referenceData.dark && this.referenceData.white) {
+                const D = this.referenceData.dark[i] || 0;
+                const W = this.referenceData.white[i] || 1;
+                const R = Math.max((S - D) / (W - D <= 0 ? 1 : W - D), 0.0001);
+                return (-Math.log10(R)).toFixed(5);
+            }
+            return S.toFixed(0); // Si no hay referencias, exportar ADC
+        });
+
+        const row = [
+            sampleName,
+            ...dataRow,
+            "M1-0000343", 
+            "SpectraNir User",
+            temp,
+            exp,
+            "4" // Basado en el promediado multi-punto
+        ];
+
+        const csvContent = [header.join(','), row.join(',')].join('\n');
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement("a");
+        const url = URL.createObjectURL(blob);
+        link.setAttribute("href", url);
+        link.setAttribute("download", `SpectraNir_${sampleName}.csv`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        this.log('✓ CSV exportado con formato compatible Viavi.', 'log-default');
     }
 
     promptUUID(): Promise<string | null> {
@@ -1548,12 +1699,22 @@ export default function App() {
                             <div className="m-val warn" id="valTemp">— °C</div>
                         </div>
                         <div className="metric m-green">
-                            <div className="m-label">BATERÍA [D:42]</div>
-                            <div className="m-val green" id="valBat">— %</div>
+                            <div className="m-label">VOLTAJE HW</div>
+                            <div className="m-val green" id="valBat">— V</div>
                         </div>
                         <div className="metric m-purple">
                             <div className="m-label">PÍXELES / PAQUETES</div>
                             <div className="m-val purple" id="valPkt">— / —</div>
+                        </div>
+                    </div>
+
+                    <div id="progressContainer" style={{display:'none', background:'rgba(0,184,217,0.05)', borderRadius:'6px', padding:'12px', border:'1px solid rgba(0,184,217,0.1)', marginBottom:'15px'}}>
+                        <div style={{display:'flex', justifyContent:'space-between', marginBottom:'10px'}}>
+                            <span className="label" style={{fontSize:'0.75rem', color:'var(--primary)', fontFamily:'Share Tech Mono', fontWeight:'bold'}}>PROGRESO DEL ESCANEO (100 PROMEDIOS)</span>
+                            <span id="progressText" className="val" style={{fontSize:'0.75rem', color:'var(--primary)', fontFamily:'Share Tech Mono'}}>0%</span>
+                        </div>
+                        <div style={{width:'100%', height:'8px', background:'rgba(255,255,255,0.05)', borderRadius:'4px', overflow:'hidden', border:'1px solid rgba(255,255,255,0.05)'}}>
+                            <div id="progressBar" style={{width:'0%', height:'100%', background:'var(--primary)', transition:'width 0.15s ease'}}></div>
                         </div>
                     </div>
 
