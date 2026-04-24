@@ -5,6 +5,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Chart, registerables } from 'chart.js';
+import { Cpu, Clock, Thermometer, Battery, Activity, Moon, Sun, Zap, Lock, Unlock } from 'lucide-react';
 
 Chart.register(...registerables);
 
@@ -1651,6 +1652,16 @@ class MicroNIRApp {
 export default function App() {
     const appRef = useRef<MicroNIRApp | null>(null);
     const [calib, setCalib] = useState({ dark: false, white: false });
+    const [isUartUnlocked, setIsUartUnlocked] = useState(false);
+
+    const unlockUart = () => {
+        const pass = window.prompt("Ingrese clave de administrador para Monitor UART:");
+        if (pass === 'UART1234') {
+            setIsUartUnlocked(true);
+        } else if (pass !== null) {
+            alert("Clave incorrecta.");
+        }
+    };
 
     useEffect(() => {
         if (!appRef.current) {
@@ -1700,32 +1711,66 @@ export default function App() {
 
             <div className="main">
                 <aside className="sidebar">
-                    <div className="sec-label">Estado de Hardware</div>
-                    <div className="hw-panel">
-                        <div className="hw-top">
-                            <span className="hw-name">Módulo MicroNIR</span>
-                            <span className="hw-id" id="devId">—</span>
-                        </div>
-                        <div className="led-row">
-                            <div className="led-badge" id="ledMCU"><div className="d"></div>MCU</div>
-                            <div className="led-badge" id="ledLAMP"><div className="d"></div>LAMP</div>
-                            <div className="led-badge" id="ledADC"><div className="d"></div>ADC</div>
-                            <div className="led-badge" id="ledDTR"><div className="d"></div>PWR</div>
-                        </div>
-                        <div className="signal-row">
-                            <div className="sig-badge" id="sigDTR"><div className="d"></div>DTR</div>
-                            <div className="sig-badge" id="sigRTS"><div className="d"></div>RTS</div>
-                            <div className="sig-badge" id="sigLINK"><div className="d"></div>LINK</div>
-                        </div>
+                    <div style={{ 
+                        border: '1px solid var(--primary)', 
+                        borderRadius: '12px', 
+                        padding: '12px', 
+                        background: 'linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%)', 
+                        marginBottom: '15px',
+                        boxShadow: '0 4px 12px rgba(14,165,233,0.3)',
+                        transition: 'all 0.3s ease'
+                    }}>
+                        <details style={{ cursor: 'pointer' }}>
+                            <summary style={{ 
+                                listStyle: 'none', 
+                                display: 'flex', 
+                                justifyContent: 'space-between', 
+                                alignItems: 'center',
+                                outline: 'none'
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#4ade80', boxShadow: '0 0 8px rgba(74,222,128,0.6)' }}></div>
+                                    <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#ffffff', letterSpacing: '-0.01em' }}>DIAGNÓSTICO HW</span>
+                                </div>
+                                <span style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.8)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Detalles</span>
+                            </summary>
+                            
+                            <div style={{ marginTop: '16px' }}>
+                                <div className="led-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '6px' }}>
+                                    <div className="led-badge" id="ledMCU" style={{ padding: '8px 2px', border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.1)', color: '#fff' }}><div className="d"></div>MCU</div>
+                                    <div className="led-badge" id="ledLAMP" style={{ padding: '8px 2px', border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.1)', color: '#fff' }}><div className="d"></div>LAMP</div>
+                                    <div className="led-badge" id="ledADC" style={{ padding: '8px 2px', border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.1)', color: '#fff' }}><div className="d"></div>ADC</div>
+                                    <div className="led-badge" id="ledDTR" style={{ padding: '8px 2px', border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.1)', color: '#fff' }}><div className="d"></div>PWR</div>
+                                </div>
+                                <div className="signal-row" style={{ marginTop: '8px', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
+                                    <div className="sig-badge" id="sigDTR" style={{ fontSize: '0.55rem', border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.1)', color: '#fff' }}>DTR</div>
+                                    <div className="sig-badge" id="sigRTS" style={{ fontSize: '0.55rem', border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.1)', color: '#fff' }}>RTS</div>
+                                    <div className="sig-badge" id="sigLINK" style={{ fontSize: '0.55rem', border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.1)', color: '#fff' }}>LINK</div>
+                                </div>
+                                <div id="devId" style={{ fontSize: '0.55rem', color: 'rgba(255,255,255,0.7)', textAlign: 'center', marginTop: '10px', fontFamily: 'var(--mono)' }}>—</div>
+                            </div>
+                        </details>
                     </div>
 
-                    <div className="uuid-box" id="uuidBox">
-                        <div className="sec-label">UUID Servicio BLE (opcional)</div>
+                    <div className="uuid-box" id="uuidBox" style={{ 
+                        background: 'linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%)', 
+                        border: '1px solid var(--primary)',
+                        borderRadius: '10px',
+                        padding: '12px',
+                        boxShadow: '0 4px 12px rgba(14,165,233,0.2)'
+                    }}>
+                        <div className="sec-label" style={{ color: '#fff', opacity: 0.9 }}>UUID Servicio BLE (opcional)</div>
                         <input id="customUUIDInput" type="text"
                             placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
                             onInput={(e: any) => { if (appRef.current) appRef.current.customServiceUUID = e.target.value.trim().toLowerCase() || null; }}
+                            style={{ 
+                                background: '#fff', 
+                                color: 'var(--text)', 
+                                border: '1px solid rgba(255,255,255,0.3)',
+                                outline: 'none'
+                             } as any}
                         />
-                        <div style={{fontSize:'.58rem', color:'var(--dim)', marginTop:'3px'}}>
+                        <div style={{fontSize:'.58rem', color:'rgba(255,255,255,0.7)', marginTop:'3px'}}>
                             Vacío = detección automática. Usa nRF Connect para obtenerlo.
                         </div>
                     </div>
@@ -1770,13 +1815,19 @@ export default function App() {
                     <div className="btn-row">
                     </div>
 
-                    <div className="history-section">
-                        <div className="history-hdr">
-                            <div className="sec-label">Historial de Calidad</div>
-                            <button className="h-clear" onClick={() => app()?.clearHistory()}>Limpiar</button>
+                    <div className="history-section" style={{ 
+                        background: 'linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%)', 
+                        border: '1px solid var(--primary)',
+                        borderRadius: '10px',
+                        marginBottom: '10px',
+                        boxShadow: '0 4px 12px rgba(14,165,233,0.2)'
+                    }}>
+                        <div className="history-hdr" style={{ borderBottom: '1px solid rgba(255,255,255,0.2)' }}>
+                            <div className="sec-label" style={{ color: '#fff' }}>Historial de Calidad</div>
+                            <button className="h-clear" onClick={() => app()?.clearHistory()} style={{ color: '#fff', opacity: 0.8 }}>Limpiar</button>
                         </div>
                         <div id="historyList" className="history-list">
-                            <div className="dim-text" style={{fontSize:'.65rem', padding:'10px'}}>Sin historial...</div>
+                            <div className="dim-text" style={{fontSize:'.65rem', padding:'10px', color: 'rgba(255,255,255,0.6)' }}>Sin historial...</div>
                         </div>
                     </div>
 
@@ -1795,9 +1846,14 @@ export default function App() {
 
                 <main className="content">
                     <div className="metrics-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
-                        <div className="metric-card" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem', boxShadow: '0 4px 12px rgba(0,0,0,0.05)', position: 'relative', overflow: 'hidden' }}>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        {/* CARD 1: CANAL DE DATOS */}
+                        <div className="metric-card" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem', boxShadow: '0 4px 12px rgba(0,0,0,0.05)', position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                            <div style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', height: '50%', background: 'linear-gradient(to top, rgba(14,165,233,0.15), transparent)', zIndex: 0 }}></div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', position: 'relative', zIndex: 1 }}>
                                 <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--dim)', fontWeight: '700' }}>Canal de Datos</span>
+                                <Cpu size={14} style={{ color: 'var(--primary)', opacity: 0.8 }} />
+                            </div>
+                            <div style={{ position: 'relative', zIndex: 1, marginTop: '8px' }}>
                                 <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
                                     <span id="valMode" style={{ fontSize: '1.5rem', fontWeight: '800', color: 'var(--primary)', fontFamily: 'var(--mono)' }}>—</span>
                                 </div>
@@ -1805,9 +1861,14 @@ export default function App() {
                             <div style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', height: '4px', background: 'var(--primary)', opacity: 0.6 }}></div>
                         </div>
 
-                        <div className="metric-card" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem', boxShadow: '0 4px 12px rgba(0,0,0,0.05)', position: 'relative', overflow: 'hidden' }}>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        {/* CARD 2: INTEGRACIÓN */}
+                        <div className="metric-card" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem', boxShadow: '0 4px 12px rgba(0,0,0,0.05)', position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                            <div style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', height: '50%', background: 'linear-gradient(to top, rgba(249,115,22,0.15), transparent)', zIndex: 0 }}></div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', position: 'relative', zIndex: 1 }}>
                                 <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--dim)', fontWeight: '700' }}>Integración</span>
+                                <Clock size={14} style={{ color: 'var(--orange)', opacity: 0.8 }} />
+                            </div>
+                            <div style={{ position: 'relative', zIndex: 1, marginTop: '8px' }}>
                                 <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
                                     <span id="valExp" style={{ fontSize: '1.5rem', fontWeight: '800', color: 'var(--orange)', fontFamily: 'var(--mono)' }}>—</span>
                                     <span style={{ fontSize: '0.7rem', color: 'var(--dim)', fontWeight: '600' }}>ms</span>
@@ -1816,9 +1877,14 @@ export default function App() {
                             <div style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', height: '4px', background: 'var(--orange)', opacity: 0.6 }}></div>
                         </div>
 
-                        <div className="metric-card" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem', boxShadow: '0 4px 12px rgba(0,0,0,0.05)', position: 'relative', overflow: 'hidden' }}>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        {/* CARD 3: TEMPERATURA */}
+                        <div className="metric-card" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem', boxShadow: '0 4px 12px rgba(0,0,0,0.05)', position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                            <div style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', height: '50%', background: 'linear-gradient(to top, rgba(251,191,36,0.15), transparent)', zIndex: 0 }}></div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', position: 'relative', zIndex: 1 }}>
                                 <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--dim)', fontWeight: '700' }}>Temperatura</span>
+                                <Thermometer size={14} style={{ color: 'var(--warn)', opacity: 0.8 }} />
+                            </div>
+                            <div style={{ position: 'relative', zIndex: 1, marginTop: '8px' }}>
                                 <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
                                     <span id="valTemp" style={{ fontSize: '1.5rem', fontWeight: '800', color: 'var(--warn)', fontFamily: 'var(--mono)' }}>—</span>
                                     <span style={{ fontSize: '0.7rem', color: 'var(--dim)', fontWeight: '600' }}>°C</span>
@@ -1827,9 +1893,14 @@ export default function App() {
                             <div style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', height: '4px', background: 'var(--warn)', opacity: 0.6 }}></div>
                         </div>
 
-                        <div className="metric-card" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem', boxShadow: '0 4px 12px rgba(0,0,0,0.05)', position: 'relative', overflow: 'hidden' }}>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        {/* CARD 4: BATERÍA */}
+                        <div className="metric-card" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem', boxShadow: '0 4px 12px rgba(0,0,0,0.05)', position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                            <div style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', height: '50%', background: 'linear-gradient(to top, rgba(16,185,129,0.15), transparent)', zIndex: 0 }}></div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', position: 'relative', zIndex: 1 }}>
                                 <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--dim)', fontWeight: '700' }}>Nivel Batería</span>
+                                <Battery size={14} style={{ color: 'var(--green)', opacity: 0.8 }} />
+                            </div>
+                            <div style={{ position: 'relative', zIndex: 1, marginTop: '8px' }}>
                                 <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
                                     <span id="valBat" style={{ fontSize: '1.5rem', fontWeight: '800', color: 'var(--green)', fontFamily: 'var(--mono)' }}>—</span>
                                     <span style={{ fontSize: '0.7rem', color: 'var(--dim)', fontWeight: '600' }}>%</span>
@@ -1838,9 +1909,14 @@ export default function App() {
                             <div style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', height: '4px', background: 'var(--green)', opacity: 0.6 }}></div>
                         </div>
 
-                        <div className="metric-card" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem', boxShadow: '0 4px 12px rgba(0,0,0,0.05)', position: 'relative', overflow: 'hidden' }}>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        {/* CARD 5: SINCRONIZACIÓN */}
+                        <div className="metric-card" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '128', padding: '1.25rem', boxShadow: '0 4px 12px rgba(0,0,0,0.05)', position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                            <div style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', height: '50%', background: 'linear-gradient(to top, rgba(168,85,247,0.15), transparent)', zIndex: 0 }}></div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', position: 'relative', zIndex: 1 }}>
                                 <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--dim)', fontWeight: '700' }}>Sincronización</span>
+                                <Activity size={14} style={{ color: 'var(--purple)', opacity: 0.8 }} />
+                            </div>
+                            <div style={{ position: 'relative', zIndex: 1, marginTop: '8px' }}>
                                 <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
                                     <span id="valPkt" style={{ fontSize: '1.5rem', fontWeight: '800', color: 'var(--purple)', fontFamily: 'var(--mono)' }}>— / —</span>
                                 </div>
@@ -1890,12 +1966,15 @@ export default function App() {
                             borderRadius: '12px',
                             display: 'flex',
                             flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
                             padding: '12px',
                             height: 'auto',
                             transition: 'all 0.2s',
                             boxShadow: calib.dark ? '0 0 15px rgba(6,182,212,0.1)' : 'none'
                         }}>
-                            <span style={{ fontSize: '0.6rem', opacity: calib.dark ? 0.8 : 0.5, marginBottom: '4px' }}>
+                            <Moon size={18} style={{ marginBottom: '6px', opacity: 0.8 }} />
+                            <span style={{ fontSize: '0.6rem', opacity: calib.dark ? 0.8 : 0.5, marginBottom: '2px' }}>
                                 {calib.dark ? '✓ COMPLETADO' : 'PASO 01'}
                             </span>
                             <span style={{ fontSize: '0.85rem', fontWeight: '800' }}>OSCURIDAD</span>
@@ -1909,12 +1988,15 @@ export default function App() {
                             borderRadius: '12px',
                             display: 'flex',
                             flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
                             padding: '12px',
                             height: 'auto',
                             transition: 'all 0.2s',
                             boxShadow: calib.white ? '0 0 15px rgba(6,182,212,0.1)' : 'none'
                         }}>
-                            <span style={{ fontSize: '0.6rem', opacity: calib.white ? 0.8 : 0.5, marginBottom: '4px' }}>
+                            <Sun size={18} style={{ marginBottom: '6px', opacity: 0.8 }} />
+                            <span style={{ fontSize: '0.6rem', opacity: calib.white ? 0.8 : 0.5, marginBottom: '2px' }}>
                                 {calib.white ? '✓ COMPLETADO' : 'PASO 02'}
                             </span>
                             <span style={{ fontSize: '0.85rem', fontWeight: '800' }}>BLANCO REFE.</span>
@@ -1930,6 +2012,8 @@ export default function App() {
                             borderRadius: '12px',
                             display: 'flex',
                             flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
                             padding: '12px',
                             height: 'auto',
                             boxShadow: (calib.dark && calib.white) ? '0 10px 15px -3px rgba(14,165,233,0.3)' : 'none',
@@ -1937,7 +2021,8 @@ export default function App() {
                             cursor: (calib.dark && calib.white) ? 'pointer' : 'not-allowed',
                             opacity: (calib.dark && calib.white) ? 1 : 0.7
                         }}>
-                            <span style={{ fontSize: '0.6rem', opacity: 0.8, marginBottom: '4px' }}>PASO 03</span>
+                            <Zap size={20} style={{ marginBottom: '6px' }} />
+                            <span style={{ fontSize: '0.6rem', opacity: 0.8, marginBottom: '2px' }}>PASO 03</span>
                             <span style={{ fontSize: '1rem', fontWeight: '900' }}>ANALIZAR MUESTRA</span>
                         </button>
                     </div>
@@ -1958,22 +2043,44 @@ export default function App() {
                         </div>
                     </div>
 
-                    <div className="terminals-panel" style={{display: 'flex', gap: '15px', height: '450px', flexShrink: 0}}>
-                        <div className="console-wrap" style={{ display: 'flex', flexDirection: 'column' }}>
-                            <div className="sec-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <span>Monitor UART / Protocolo BLE</span>
-                                <button className="chip-btn" id="btnPause" onClick={(e: any) => { 
-                                    const a = app(); 
-                                    if (a) { 
-                                        a.consolePaused = !a.consolePaused; 
-                                        e.target.innerText = a.consolePaused ? '▶ Reanudar' : '⏸ Pausar'; 
-                                        e.target.style.color = a.consolePaused ? 'var(--primary)' : ''; 
-                                    } 
-                                }}>⏸ Pausar</button>
-                            </div>
-                            <div className="console" id="console" style={{ fontSize: '13px', lineHeight: '1.4' }}>
-                                <div className="log-sys">{'>'} MicroNIR Controller v6.0 — Modo Producción.</div>
-                            </div>
+                    <div className="terminals-panel" style={{ display: 'flex', gap: '15px', flexShrink: 0, marginTop: '20px' }}>
+                        <div className="console-wrap" style={{ display: 'flex', flexDirection: 'column', border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden' }}>
+                            <details style={{ width: '100%' }}>
+                                <summary style={{ 
+                                    padding: '12px 16px', 
+                                    background: 'linear-gradient(90deg, #0ea5e9 0%, #0284c7 100%)', 
+                                    cursor: 'pointer', 
+                                    display: 'flex', 
+                                    justifyContent: 'space-between', 
+                                    alignItems: 'center',
+                                    userSelect: 'none',
+                                    listStyle: 'none',
+                                    borderBottom: '1px solid var(--primary)'
+                                }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <Activity size={14} style={{ color: '#fff' }} />
+                                        <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#fff', letterSpacing: '-0.01em' }}>CONSOLA DE SISTEMA / DEBUG LOG</span>
+                                    </div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                        <button className="chip-btn" id="btnPause" onClick={(e: any) => { 
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            const a = app(); 
+                                            if (a) { 
+                                                a.consolePaused = !a.consolePaused; 
+                                                e.target.innerText = a.consolePaused ? '▶ Reanudar' : '⏸ Pausar'; 
+                                                e.target.style.color = a.consolePaused ? '#fff' : ''; 
+                                            } 
+                                        }} style={{ fontSize: '0.65rem', background: 'rgba(255,255,255,0.2)', color: '#fff', border: '1px solid rgba(255,255,255,0.3)' }}>⏸ Pausar</button>
+                                        <span style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.8)', textTransform: 'uppercase' }}>Expandir</span>
+                                    </div>
+                                </summary>
+                                <div style={{ height: '400px', borderTop: '1px solid var(--border)' }}>
+                                    <div className="console" id="console" style={{ fontSize: '13px', lineHeight: '1.4', height: '100%', background: 'var(--bg)' }}>
+                                        <div className="log-sys">{'>'} MicroNIR Controller v6.0 — Modo Producción.</div>
+                                    </div>
+                                </div>
+                            </details>
                         </div>
                     </div>
                 </main>
