@@ -357,6 +357,13 @@ class MicroNIRApp {
 
         this.setSig('LINK', true);
         this.log('MCU listo y en modo Standby.', 'log-warn');
+        
+        // 5. Configuración Inicial de Integración (12.5 ms)
+        await this.setIntegrationTime(12.5);
+        
+        // 6. Configuración de Réplicas de Hardware (50)
+        await this.setHardwareReplicas(50);
+
         this.log('Por favor inicia la calibración (OSCURIDAD -> BLANCO -> MUESTRA).', 'log-sys');
     }
 
@@ -779,6 +786,27 @@ class MicroNIRApp {
 
     private isFuzzingLamp: boolean = false;
 
+    async setIntegrationTime(ms: number) {
+        if (!this.connected) return;
+        // Según mapeo: 10000 unidades = 12.5ms
+        const hwValue = Math.round(ms * 10000 / 12.5);
+        this.log(`Configurando Tiempo de Integración: ${ms} ms (HW: ${hwValue})...`, 'log-sys');
+        
+        // Comando 0x0A (SET INTEGRATION) + 4 bytes valor + 4 bytes passkey
+        const cmd = this.createGenericSetUintCommandWithPasskey(this.CMD.INTEGRATION_TIME, hwValue);
+        await this.sendCmdData(cmd, 'set_exp');
+    }
+
+    async setHardwareReplicas(reps: number) {
+        if (!this.connected) return;
+        this.log(`Configurando Réplicas de Hardware: ${reps}...`, 'log-sys');
+        this.HW_REPS = reps;
+        
+        // Comando 0x0B (LAMP_DWELLS / Scans per Average) + 4 bytes valor + 4 bytes passkey
+        const cmd = this.createGenericSetUintCommandWithPasskey(this.CMD.LAMP_DWELLS, reps);
+        await this.sendCmdData(cmd, 'set_reps');
+    }
+
     async batteryPing() {
         if (!this.connected) return;
         this.log('\n--- DIAGNÓSTICO BATERÍA ---', 'log-warn');
@@ -986,7 +1014,7 @@ class MicroNIRApp {
         }
     }
 
-    processPacketRaw(buf: number[]) {
+    async processPacketRaw(buf: number[]) {
         if (buf.length < 2) return;
         
         // 1. Quitar el Byte Stuffing
@@ -1037,7 +1065,7 @@ class MicroNIRApp {
             // Payload total es de 289 bytes. El byte 0 es el CMD (0x50).
             const pixelData = payload.slice(1, 257); 
             this.log(`Extraídos 256 bytes de Array de InGaAs (Offset 1). Enviando a Gráfica...`, 'log-warn');
-            this.processSpectrum(pixelData);
+            await this.processSpectrum(pixelData);
 
             // EXTRACCIÓN DE TELEMETRÍA (Metadata bytes 257-288)
             if (payload.length >= 288) {
@@ -1070,9 +1098,9 @@ class MicroNIRApp {
         } else if (cmd === 0x53) {
             // Manejo flexible para comando 0x53
             if (payload.length >= 257) {
-                this.processSpectrum(payload.slice(1, 257));
+                await this.processSpectrum(payload.slice(1, 257));
             } else {
-                this.processSpectrum(payload.slice(1));
+                await this.processSpectrum(payload.slice(1));
             }
         } else if (cmd === 0x42 || cmd === this.CMD.BATTERY) {
             const pct = payload.length > 1 ? payload[1] : 0; // Fix safe access
@@ -1217,25 +1245,30 @@ class MicroNIRApp {
 
     scanTarget: 'dark' | 'white' | 'sample' | false = false;
 
-    HW_REPS = 100; 
-
     async takeAndSleepScan(withLamp: boolean) {
-        this.log(`\n--- ESCANEO MECÁNICO DE PRECISIÓN (${this.HW_REPS} Reps) ---`, 'log-warn');
+        this.log(`\n--- ESCANEO MECÁNICO (${this.HW_REPS} Reps) ---`, 'log-warn');
         this.setLed('ADC', true, 'on-orange');
         this.rxBuffer = [];
         this.inPacket = false;
         
-        // Configuración de 2 segundos de integración térmica
-        this.log(`Configurando integración interna: ${this.HW_REPS} reps...`, 'log-sys');
-        const configPayload = this.createGenericSetUintCommandWithPasskey(53, this.HW_REPS);
+        // Sincronizar reps
+        const reps = this.HW_REPS;
+        this.log(`Configurando integración: ${reps} reps...`, 'log-sys');
+        const configPayload = this.createGenericSetUintCommandWithPasskey(53, reps);
         await this.sendCmdData(configPayload, 'config_hw_reps');
         await this.sleep(150);
+
+        if (withLamp) {
+            this.log('Encendiendo lámpara para estabilidad...', 'log-sys');
+            await this.sendCmdData([0x21, 0x01, 0x00], 'lamp_on_pre');
+            await this.sleep(500); 
+        }
 
         const presetId = withLamp ? 0x01 : 0x00;
         await this.sendCmdData([34, presetId, 0x00], 'scan_start_act');
         
         const waitTime = 2000; 
-        this.log(`Integrando espectro... (LED Amarillo encendido ${waitTime}ms)`, 'log-sys');
+        this.log(`Integrando espectro (${waitTime}ms)...`, 'log-sys');
         await this.sleep(waitTime); 
 
         this.sendCmdData([80, this.PROPERTY.GET], 'scan_read_wait');
@@ -1303,7 +1336,7 @@ class MicroNIRApp {
         if (txt) txt.textContent = `${per}%`;
     }
 
-    processSpectrum(raw: number[]) {
+    async processSpectrum(raw: number[]) {
         if (!this.scanTarget) return;
 
         try {
@@ -1335,10 +1368,12 @@ class MicroNIRApp {
                 this.updateProgress(this.multiScanBuffer.length);
                 
                 if (this.multiScanBuffer.length < this.scansToAverage) {
-                    this.log(`✓ Punto ${this.multiScanBuffer.length}/4 capturado. MUEVE LA MUESTRA...`, 'log-warn');
+                    this.log(`✓ Punto ${this.multiScanBuffer.length}/4 capturado. Apagando lámpara y pausando 1.5s...`, 'log-warn');
+                    await this.sendCmdData([0x21, 0x00, 0x00], 'lamp_off_intermediate');
+                    
                     setTimeout(() => {
                         this.takeAndSleepScan_Auto(true);
-                    }, 2000); 
+                    }, 1500); 
                     return; 
                 } else {
                     this.log('Σ Calculando promedio final de los 4 puntos...', 'log-warn');
@@ -1356,18 +1391,11 @@ class MicroNIRApp {
                 }
             }
 
-            // --- SUAVIZADO DIGITAL ---
-            const smoothed = [...spectrum];
-            for (let i = 1; i < smoothed.length - 1; i++) {
-                smoothed[i] = (spectrum[i-1] + spectrum[i] + spectrum[i+1]) / 3;
-            }
-            spectrum = smoothed;
-
             this.lastSpectrum = [...spectrum];
             this.pktCount++;
             const valPkt = document.getElementById('valPkt');
             if (valPkt) valPkt.textContent = `${spectrum.length} / ${this.pktCount}`;
-            this.log(`Espectro Recibido (${this.HW_REPS} reps de hardware).`, 'log-sys');
+            this.log(`Espectro Recibido (${this.HW_REPS} reps).`, 'log-sys');
             
             let displayData = [...spectrum];
             const target = this.scanTarget;
@@ -1417,9 +1445,19 @@ class MicroNIRApp {
         this.rxBuffer = [];
         this.inPacket = false;
         this.setLed('ADC', true, 'on-orange');
+
+        if (withLamp) {
+            this.log('Encendiendo lámpara para punto...', 'log-sys');
+            await this.sendCmdData([0x21, 0x01, 0x00], 'lamp_on_auto');
+            await this.sleep(500); 
+        }
+
         const presetId = withLamp ? 0x01 : 0x00;
         await this.sendCmdData([34, presetId, 0x00], 'scan_start_act');
-        await this.sleep(2000); 
+        
+        const waitTime = 2000;
+        this.log(`Integrando punto auto... (${waitTime}ms)`, 'log-sys');
+        await this.sleep(waitTime); 
         this.sendCmdData([80, this.PROPERTY.GET], 'scan_read_wait');
     }
 
@@ -1727,7 +1765,7 @@ export default function App() {
 
                     <div id="progressContainer" style={{display:'none', background:'rgba(0,184,217,0.05)', borderRadius:'6px', padding:'12px', border:'1px solid rgba(0,184,217,0.1)', marginBottom:'15px'}}>
                         <div style={{display:'flex', justifyContent:'space-between', marginBottom:'10px'}}>
-                            <span className="label" style={{fontSize:'0.75rem', color:'var(--primary)', fontFamily:'Share Tech Mono', fontWeight:'bold'}}>PROGRESO DEL ESCANEO (100 PROMEDIOS)</span>
+                            <span className="label" style={{fontSize:'0.75rem', color:'var(--primary)', fontFamily:'Share Tech Mono', fontWeight:'bold'}}>PROGRESO DE INTEGRACIÓN</span>
                             <span id="progressText" className="val" style={{fontSize:'0.75rem', color:'var(--primary)', fontFamily:'Share Tech Mono'}}>0%</span>
                         </div>
                         <div style={{width:'100%', height:'8px', background:'rgba(255,255,255,0.05)', borderRadius:'4px', overflow:'hidden', border:'1px solid rgba(255,255,255,0.05)'}}>
@@ -1749,6 +1787,14 @@ export default function App() {
                         <button id="btnAbs" className="btn" onClick={() => app()?.scanSample()} style={{ flex: 1, backgroundColor: 'var(--primary)', color: '#fff', fontWeight: 'bold', boxShadow: '0 4px 6px rgba(14,165,233,0.15)' }}>
                             <span style={{opacity: 0.6, marginRight: '5px'}}>[3]</span> MUESTRA (ABS)
                         </button>
+                    </div>
+
+                    <div style={{fontSize: '0.65rem', color: 'var(--dim)', backgroundColor: 'rgba(0,184,217,0.03)', padding: '10px', borderRadius: '8px', border: '1px dashed rgba(0,184,217,0.2)', marginBottom: '20px', lineHeight: '1.4'}}>
+                        <div style={{fontWeight: 'bold', color: 'var(--primary)', marginBottom: '4px', fontSize: '0.7rem'}}>Resumen Matemático de Integración:</div>
+                        • 1 Espectro en pantalla = Promedio de 4 réplicas de usuario.<br/>
+                        • Cada réplica = Promedio de 50 micro-escaneos de hardware.<br/>
+                        • Total de datos procesados: <strong>200 escaneos reales</strong> condensados en una sola curva.<br/>
+                        <span style={{fontSize: '0.6rem', fontStyle: 'italic'}}>Tiempo de integración fijado en 12.5ms por escaneo.</span>
                     </div>
 
                     <div className="chart-panel">
