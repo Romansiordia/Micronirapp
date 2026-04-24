@@ -358,8 +358,8 @@ class MicroNIRApp {
         this.setSig('LINK', true);
         this.log('MCU listo y en modo Standby.', 'log-warn');
         
-        // 5. Configuración Inicial de Integración (12.5 ms)
-        await this.setIntegrationTime(12.5);
+        // 5. Configuración Inicial de Integración (10.5 ms)
+        await this.setIntegrationTime(10.5);
         
         // 6. Configuración de Réplicas de Hardware (50)
         await this.setHardwareReplicas(50);
@@ -788,9 +788,9 @@ class MicroNIRApp {
 
     async setIntegrationTime(ms: number) {
         if (!this.connected) return;
-        // Según mapeo: 10000 unidades = 12.5ms
-        const hwValue = Math.round(ms * 10000 / 12.5);
-        this.log(`Configurando Tiempo de Integración: ${ms} ms (HW: ${hwValue})...`, 'log-sys');
+        // Según DLL: El valor se maneja en microsegundos (Us)
+        const hwValue = Math.round(ms * 1000);
+        this.log(`Configurando Tiempo de Integración: ${ms} ms (HW: ${hwValue} us)...`, 'log-sys');
         
         // Comando 0x0A (SET INTEGRATION) + 4 bytes valor + 4 bytes passkey
         const cmd = this.createGenericSetUintCommandWithPasskey(this.CMD.INTEGRATION_TIME, hwValue);
@@ -813,8 +813,8 @@ class MicroNIRApp {
         
         if (this.heartbeatTimer) { clearInterval(this.heartbeatTimer); this.heartbeatTimer = null; }
 
-        // Manda el comando clásico BATTERY ('D' = 0x44)
-        const payload = this.createGenericGetCommand(0x44);
+        // Manda el comando BATTERY (0x42)
+        const payload = this.createGenericGetCommand(this.CMD.BATTERY);
         await this.sendCmdData(payload, 'battery');
     }
 
@@ -1067,33 +1067,49 @@ class MicroNIRApp {
             this.log(`Extraídos 256 bytes de Array de InGaAs (Offset 1). Enviando a Gráfica...`, 'log-warn');
             await this.processSpectrum(pixelData);
 
-            // EXTRACCIÓN DE TELEMETRÍA (Metadata bytes 257-288)
+            // EXTRACCIÓN DE TELEMETRÍA (Metadata bytes 257-288) según DLL de VIAVI
             if (payload.length >= 288) {
-                // 1. Integración ADC (Microsegundos en Offset 272-273)
-                // Log: ... 27 10 ... -> 0x2710 = 10000 -> 12.5ms según CSV usuario
-                const iRaw = payload[272] | (payload[273] << 8);
+                // Notar: index = DLL_offset + 1 (porque payload[0] es el CMD 0x50)
+                // VIAVI usa Big Endian para empaquetar bytes (Ver UInt32BytePacker en DLL)
+
+                // 1. Tiempo de Integración (DLL Offset 264 - 4 bytes Big Endian)
+                const iTime = (payload[265] << 24) | (payload[266] << 16) | (payload[267] << 8) | payload[268];
                 const valExp = document.getElementById('valExp');
-                if (valExp && iRaw > 0) {
-                    const expMs = (iRaw * 12.5 / 10000).toFixed(1);
+                if (valExp && iTime > 0) {
+                    const expMs = (iTime / 1000).toFixed(1); // Us a Ms
                     valExp.textContent = `${expMs} ms`;
                 }
 
-                // 2. Voltaje detectado en Offset 278-279 (mV)
-                const vRaw = payload[278] | (payload[279] << 8);
-                const vBat = vRaw / 10; // Convertir a mV si viene en unidades de 10
-                if (vBat > 500) {
-                    const volts = (vBat / 1000).toFixed(2);
-                    const elBat = document.getElementById('valBat');
-                    if (elBat) elBat.textContent = `${volts} V`;
+                // 2. Capacidad de Batería (DLL Offset 273 - 1 byte)
+                const pctReal = payload[274]; 
+                const elBat = document.getElementById('valBat');
+                if (elBat) {
+                    elBat.textContent = `${pctReal}%`;
+                    if (pctReal < 20) elBat.className = "m-val red";
+                    else if (pctReal < 50) elBat.className = "m-val orange";
+                    else elBat.className = "m-val green";
                 }
 
-                // 3. Temperatura detectada en Offset 274-275
-                const tRaw = payload[274] | (payload[275] << 8);
-                if (tRaw > 100 && tRaw < 800) {
-                    const tempC = tRaw / 10;
-                    const elTemp = document.getElementById('valTemp');
-                    if (elTemp) elTemp.textContent = `${tempC.toFixed(1)}°C`;
+                // 3. Temperatura (DLL Offset 260 - 2 bytes Big Endian con lógica 13-bits)
+                let tRaw = (payload[261] << 8) | payload[262];
+                const mask = 8191; // 0x1FFF (13 bits)
+                const signBit = 4096; // 2^12
+                tRaw &= mask;
+                let tempC = 0;
+                if ((tRaw & signBit) === signBit) {
+                    tempC = (tRaw - 8192) / 16.0;
+                } else {
+                    tempC = tRaw / 16.0;
                 }
+
+                const elTemp = document.getElementById('valTemp');
+                if (elTemp && tempC > -50 && tempC < 150) {
+                    elTemp.textContent = `${tempC.toFixed(1)}°C`;
+                }
+
+                // 4. Spectra Counter (DLL Offset 256 - 4 bytes Big Endian)
+                const sCount = (payload[257] << 24) | (payload[258] << 16) | (payload[259] << 8) | payload[260];
+                this.log(`Metadata: Scan #${sCount} | Bat: ${pctReal}% | Temp: ${tempC.toFixed(1)}°C`, 'log-sys');
             }
         } else if (cmd === 0x53) {
             // Manejo flexible para comando 0x53
@@ -1103,10 +1119,15 @@ class MicroNIRApp {
                 await this.processSpectrum(payload.slice(1));
             }
         } else if (cmd === 0x42 || cmd === this.CMD.BATTERY) {
-            const pct = payload.length > 1 ? payload[1] : 0; // Fix safe access
+            const pct = (payload.length > 1) ? payload[1] : (payload[0] || 0); 
             const valBat = document.getElementById('valBat');
-            if (valBat) valBat.textContent = pct + ' %';
-            this.log(`Nivel Batería/Info: ${Array.from(payload).map(b => b.toString(16).padStart(2,'0')).join(' ')}`, 'log-default');
+            if (valBat) {
+                valBat.textContent = pct + '%';
+                if (pct < 20) valBat.className = "m-val red";
+                else if (pct < 50) valBat.className = "m-val orange";
+                else valBat.className = "m-val green";
+            }
+            this.log(`Nivel Batería (Cmd 0x42): ${pct}% | Payload: ${Array.from(payload).map(b => b.toString(16).padStart(2,'0')).join(' ')}`, 'log-warn');
         } else if (cmd === 0x54 || cmd === this.CMD.TEMP) {
             const t = ((payload[1]||0) | ((payload[2]||0) << 8)) / 10;
             const valTemp = document.getElementById('valTemp');
@@ -1754,8 +1775,8 @@ export default function App() {
                             <div className="m-val warn" id="valTemp">— °C</div>
                         </div>
                         <div className="metric m-green">
-                            <div className="m-label">VOLTAJE HW</div>
-                            <div className="m-val green" id="valBat">— V</div>
+                            <div className="m-label">BATERÍA</div>
+                            <div className="m-val green" id="valBat">— %</div>
                         </div>
                         <div className="metric m-purple">
                             <div className="m-label">PÍXELES / PAQUETES</div>
@@ -1794,7 +1815,7 @@ export default function App() {
                         • 1 Espectro en pantalla = Promedio de 4 réplicas de usuario.<br/>
                         • Cada réplica = Promedio de 50 micro-escaneos de hardware.<br/>
                         • Total de datos procesados: <strong>200 escaneos reales</strong> condensados en una sola curva.<br/>
-                        <span style={{fontSize: '0.6rem', fontStyle: 'italic'}}>Tiempo de integración fijado en 12.5ms por escaneo.</span>
+                        <span style={{fontSize: '0.6rem', fontStyle: 'italic'}}>Tiempo de integración fijado en 10.5ms por escaneo.</span>
                     </div>
 
                     <div className="chart-panel">
