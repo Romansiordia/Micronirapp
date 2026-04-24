@@ -1725,9 +1725,17 @@ export default function App() {
                     </div>
 
                     <div id="bleSection">
-                        <button className="btn btn-primary" onClick={() => app()?.connect()}>
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11M12 2v20"/></svg>
-                            Conectar BLE (Móviles)
+                        <button className="btn" onClick={() => app()?.connect()} style={{ 
+                            background: 'linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%)', 
+                            color: '#fff', 
+                            border: 'none', 
+                            borderRadius: '10px', 
+                            padding: '12px',
+                            boxShadow: '0 4px 6px -1px rgba(14,165,233,0.3)',
+                            fontWeight: '700'
+                        }}>
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{marginRight: '8px'}}><path d="M6.5 6.5l11 11M17.5 6.5l-11 11M12 2v20"/></svg>
+                            CONECTAR MICRO-NIR
                         </button>
                     </div>
 
@@ -1755,32 +1763,72 @@ export default function App() {
                         </div>
                     </div>
 
-                    <button id="btnDisc" className="btn btn-danger" onClick={() => app()?.disconnect()} disabled style={{ marginTop: '10px' }}>
+                    <button id="btnDisc" className="btn" onClick={() => app()?.disconnect()} disabled style={{ 
+                        marginTop: '10px',
+                        background: '#fff',
+                        border: '1.5px solid #64748b',
+                        color: '#64748b',
+                        borderRadius: '10px',
+                        fontSize: '0.65rem',
+                        fontWeight: '800'
+                    }}>
                         DESCONECTAR EQUIPO
                     </button>
                 </aside>
 
                 <main className="content">
-                    <div className="metrics-row">
-                        <div className="metric">
-                            <div className="m-label">MODO / CHIP</div>
-                            <div className="m-val" id="valMode">—</div>
+                    <div className="metrics-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
+                        <div className="metric-card" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem', boxShadow: '0 4px 12px rgba(0,0,0,0.05)', position: 'relative', overflow: 'hidden' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--dim)', fontWeight: '700' }}>Canal de Datos</span>
+                                <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
+                                    <span id="valMode" style={{ fontSize: '1.5rem', fontWeight: '800', color: 'var(--primary)', fontFamily: 'var(--mono)' }}>—</span>
+                                </div>
+                            </div>
+                            <div style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', height: '4px', background: 'var(--primary)', opacity: 0.6 }}></div>
                         </div>
-                        <div className="metric m-orange">
-                            <div className="m-label">INTEGRACIÓN ADC</div>
-                            <div className="m-val orange" id="valExp">— ms</div>
+
+                        <div className="metric-card" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem', boxShadow: '0 4px 12px rgba(0,0,0,0.05)', position: 'relative', overflow: 'hidden' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--dim)', fontWeight: '700' }}>Integración</span>
+                                <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
+                                    <span id="valExp" style={{ fontSize: '1.5rem', fontWeight: '800', color: 'var(--orange)', fontFamily: 'var(--mono)' }}>—</span>
+                                    <span style={{ fontSize: '0.7rem', color: 'var(--dim)', fontWeight: '600' }}>ms</span>
+                                </div>
+                            </div>
+                            <div style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', height: '4px', background: 'var(--orange)', opacity: 0.6 }}></div>
                         </div>
-                        <div className="metric m-warn">
-                            <div className="m-label">TEMP. SENSOR</div>
-                            <div className="m-val warn" id="valTemp">— °C</div>
+
+                        <div className="metric-card" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem', boxShadow: '0 4px 12px rgba(0,0,0,0.05)', position: 'relative', overflow: 'hidden' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--dim)', fontWeight: '700' }}>Temperatura</span>
+                                <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
+                                    <span id="valTemp" style={{ fontSize: '1.5rem', fontWeight: '800', color: 'var(--warn)', fontFamily: 'var(--mono)' }}>—</span>
+                                    <span style={{ fontSize: '0.7rem', color: 'var(--dim)', fontWeight: '600' }}>°C</span>
+                                </div>
+                            </div>
+                            <div style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', height: '4px', background: 'var(--warn)', opacity: 0.6 }}></div>
                         </div>
-                        <div className="metric m-green">
-                            <div className="m-label">BATERÍA</div>
-                            <div className="m-val green" id="valBat">— %</div>
+
+                        <div className="metric-card" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem', boxShadow: '0 4px 12px rgba(0,0,0,0.05)', position: 'relative', overflow: 'hidden' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--dim)', fontWeight: '700' }}>Nivel Batería</span>
+                                <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
+                                    <span id="valBat" style={{ fontSize: '1.5rem', fontWeight: '800', color: 'var(--green)', fontFamily: 'var(--mono)' }}>—</span>
+                                    <span style={{ fontSize: '0.7rem', color: 'var(--dim)', fontWeight: '600' }}>%</span>
+                                </div>
+                            </div>
+                            <div style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', height: '4px', background: 'var(--green)', opacity: 0.6 }}></div>
                         </div>
-                        <div className="metric m-purple">
-                            <div className="m-label">PÍXELES / PAQUETES</div>
-                            <div className="m-val purple" id="valPkt">— / —</div>
+
+                        <div className="metric-card" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem', boxShadow: '0 4px 12px rgba(0,0,0,0.05)', position: 'relative', overflow: 'hidden' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--dim)', fontWeight: '700' }}>Sincronización</span>
+                                <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
+                                    <span id="valPkt" style={{ fontSize: '1.5rem', fontWeight: '800', color: 'var(--purple)', fontFamily: 'var(--mono)' }}>— / —</span>
+                                </div>
+                            </div>
+                            <div style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', height: '4px', background: 'var(--purple)', opacity: 0.6 }}></div>
                         </div>
                     </div>
 
@@ -1794,29 +1842,80 @@ export default function App() {
                         </div>
                     </div>
 
-                    <div className="calibration-wizard" style={{ display: 'flex', gap: '10px', backgroundColor: 'var(--panel)', padding: '15px', borderRadius: '8px', border: '1px solid var(--border)', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.03)', marginBottom: '15px', alignItems: 'center' }}>
-                        <div style={{ color: 'var(--text)', fontSize: '0.8rem', fontWeight: 'bold', width: '150px' }}>FLUJO DE<br/>CALIBRACIÓN:</div>
+                    <div className="calibration-wizard" style={{ 
+                        display: 'flex', 
+                        gap: '12px', 
+                        backgroundColor: '#fff', 
+                        padding: '20px', 
+                        borderRadius: '16px', 
+                        border: '1px solid #e2e8f0', 
+                        boxShadow: '0 10px 15px -3px rgba(0,0,0,0.05)', 
+                        marginBottom: '20px', 
+                        alignItems: 'stretch' 
+                    }}>
+                        <div style={{ 
+                            display: 'flex', 
+                            flexDirection: 'column', 
+                            justifyContent: 'center',
+                            paddingRight: '20px',
+                            borderRight: '2px solid #f1f5f9',
+                            marginRight: '10px'
+                        }}>
+                             <div style={{ color: '#64748b', fontSize: '0.65rem', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Protocolo de</div>
+                             <div style={{ color: '#1e293b', fontSize: '0.9rem', fontWeight: '900', letterSpacing: '-0.02em' }}>CALIBRACIÓN</div>
+                        </div>
                         
-                        <button id="btnDark" className="btn" onClick={() => app()?.setDarkReference()} style={{ flex: 1, backgroundColor: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--border)', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
-                            <span style={{opacity: 0.6, marginRight: '5px'}}>[1]</span> OSCURIDAD
+                        <button id="btnDark" className="btn" onClick={() => app()?.setDarkReference()} style={{ 
+                            flex: 1, 
+                            backgroundColor: '#f8fafc', 
+                            color: '#475569', 
+                            border: '1px solid #e2e8f0', 
+                            borderRadius: '12px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            padding: '12px',
+                            height: 'auto',
+                            transition: 'all 0.2s'
+                        }}>
+                            <span style={{ fontSize: '0.6rem', opacity: 0.5, marginBottom: '4px' }}>PASO 01</span>
+                            <span style={{ fontSize: '0.85rem', fontWeight: '800' }}>OSCURIDAD</span>
                         </button>
                         
-                        <button id="btnWhite" className="btn" onClick={() => app()?.setWhiteReference()} style={{ flex: 1, backgroundColor: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--border)', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
-                            <span style={{opacity: 0.6, marginRight: '5px'}}>[2]</span> BLANCO
+                        <button id="btnWhite" className="btn" onClick={() => app()?.setWhiteReference()} style={{ 
+                            flex: 1, 
+                            backgroundColor: '#f8fafc', 
+                            color: '#475569', 
+                            border: '1px solid #e2e8f0', 
+                            borderRadius: '12px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            padding: '12px',
+                            height: 'auto',
+                            transition: 'all 0.2s'
+                        }}>
+                            <span style={{ fontSize: '0.6rem', opacity: 0.5, marginBottom: '4px' }}>PASO 02</span>
+                            <span style={{ fontSize: '0.85rem', fontWeight: '800' }}>BLANCO REFE.</span>
                         </button>
                         
-                        <button id="btnAbs" className="btn" onClick={() => app()?.scanSample()} style={{ flex: 1, backgroundColor: 'var(--primary)', color: '#fff', fontWeight: 'bold', boxShadow: '0 4px 6px rgba(14,165,233,0.15)' }}>
-                            <span style={{opacity: 0.6, marginRight: '5px'}}>[3]</span> MUESTRA (ABS)
+                        <button id="btnAbs" className="btn" onClick={() => app()?.scanSample()} style={{ 
+                            flex: 1.5, 
+                            background: 'linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%)', 
+                            color: '#fff', 
+                            border: 'none', 
+                            borderRadius: '12px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            padding: '12px',
+                            height: 'auto',
+                            boxShadow: '0 10px 15px -3px rgba(14,165,233,0.3)',
+                            transition: 'all 0.2s'
+                        }}>
+                            <span style={{ fontSize: '0.6rem', opacity: 0.8, marginBottom: '4px' }}>PASO 03</span>
+                            <span style={{ fontSize: '1rem', fontWeight: '900' }}>ANALIZAR MUESTRA</span>
                         </button>
                     </div>
 
-                    <div style={{fontSize: '0.65rem', color: 'var(--dim)', backgroundColor: 'rgba(0,184,217,0.03)', padding: '10px', borderRadius: '8px', border: '1px dashed rgba(0,184,217,0.2)', marginBottom: '20px', lineHeight: '1.4'}}>
-                        <div style={{fontWeight: 'bold', color: 'var(--primary)', marginBottom: '4px', fontSize: '0.7rem'}}>Resumen Matemático de Integración:</div>
-                        • 1 Espectro en pantalla = Promedio de 4 réplicas de usuario.<br/>
-                        • Cada réplica = Promedio de 50 micro-escaneos de hardware.<br/>
-                        • Total de datos procesados: <strong>200 escaneos reales</strong> condensados en una sola curva.<br/>
-                        <span style={{fontSize: '0.6rem', fontStyle: 'italic'}}>Tiempo de integración fijado en 10.5ms por escaneo.</span>
-                    </div>
+
 
                     <div className="chart-panel">
                         <div className="chart-hdr">

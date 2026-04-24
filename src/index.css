@@ -144,26 +144,28 @@ header {
 .hw-id { font-family: var(--mono); font-size: .6rem; color: var(--dim); }
 
 .led-row { display: flex; gap: 6px; }
+/* LED badges professional hardware look */
 .led-badge {
     flex: 1;
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 5px;
-    padding: 6px 3px;
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 10px 4px;
     text-align: center;
-    font-family: var(--mono); font-size: .58rem;
-    color: var(--dim);
+    font-family: var(--mono); font-size: .6rem;
+    color: #64748b;
     transition: all .3s;
+    font-weight: 700;
 }
-.led-badge .d { width: 7px; height: 7px; border-radius: 50%; background: var(--border2); margin: 0 auto 3px; transition: all .3s; }
-.led-badge.on-blue   { border-color: var(--primary); color: var(--primary); }
-.led-badge.on-blue .d   { background: var(--primary); box-shadow: 0 0 7px var(--primary); }
-.led-badge.on-green  { border-color: var(--green);   color: var(--green); }
-.led-badge.on-green .d  { background: var(--green);  box-shadow: 0 0 7px var(--green); }
-.led-badge.on-orange { border-color: var(--orange);  color: var(--orange); }
-.led-badge.on-orange .d { background: var(--orange); box-shadow: 0 0 7px var(--orange); }
-.led-badge.on-red    { border-color: var(--red);     color: var(--red); }
-.led-badge.on-red .d    { background: var(--red);    box-shadow: 0 0 7px var(--red); }
+.led-badge .d { width: 8px; height: 8px; border-radius: 50%; background: #cbd5e1; margin: 0 auto 5px; transition: all .3s; }
+.led-badge.on-blue   { border-color: var(--primary); color: var(--primary); background: rgba(14,165,233,0.05); }
+.led-badge.on-blue .d   { background: var(--primary); box-shadow: 0 0 10px var(--primary), 0 0 20px rgba(14,165,233,0.5); }
+.led-badge.on-green  { border-color: var(--green);   color: var(--green);   background: rgba(16,185,129,0.05); }
+.led-badge.on-green .d  { background: var(--green);  box-shadow: 0 0 10px var(--green), 0 0 20px rgba(16,185,129,0.5); }
+.led-badge.on-orange { border-color: var(--orange);  color: var(--orange);  background: rgba(249,115,22,0.05); }
+.led-badge.on-orange .d { background: var(--orange); box-shadow: 0 0 10px var(--orange), 0 0 20px rgba(249,115,22,0.5); }
+.led-badge.on-red    { border-color: var(--red);     color: var(--red);     background: rgba(239,68,68,0.05); }
+.led-badge.on-red .d    { background: var(--red);    box-shadow: 0 0 10px var(--red), 0 0 20px rgba(239,68,68,0.5); }
 
 /* DTR/RTS indicators */
 .signal-row { display: flex; gap: 6px; margin-top: 6px; }
@@ -188,8 +190,16 @@ header {
 }
 .btn:active { transform: scale(.97); }
 .btn:disabled { opacity: .22; cursor: not-allowed; transform: none !important; }
-.btn-primary { background: var(--primary); color: #fff; }
-.btn-primary:hover:not(:disabled) { background: #1fd0f0; }
+.btn-primary { 
+    background: linear-gradient(135deg, var(--primary) 0%, #0284c7 100%); 
+    color: #fff; 
+    box-shadow: 0 4px 6px -1px rgba(14,165,233,0.3);
+    border: none;
+}
+.btn-primary:hover:not(:disabled) { 
+    box-shadow: 0 10px 15px -3px rgba(14,165,233,0.4);
+    transform: translateY(-1px);
+}
 .btn-ghost-green  { background: transparent; border: 1px solid var(--green); color: var(--green); }
 .btn-ghost-green:hover:not(:disabled) { background: rgba(0,229,160,.08); }
 .btn-ghost-orange { background: transparent; border: 1px solid var(--orange); color: var(--orange); }
@@ -403,12 +413,15 @@ header {
 .chart-btns { display: flex; gap: 5px; }
 .chip-btn {
     font-family: var(--mono); font-size: .62rem;
-    padding: 3px 8px;
-    border: 1px solid #334155; border-radius: 4px;
-    background: rgba(255,255,255,0.03); color: #94a3b8;
+    padding: 6px 12px;
+    border: 1px solid #334155; border-radius: 6px;
+    background: rgba(255,255,255,0.05); color: #94a3b8;
     cursor: pointer; transition: all .15s;
+    text-transform: uppercase;
+    font-weight: 700;
 }
-.chip-btn:hover { border-color: var(--primary); color: #e0f2fe; background: rgba(14,165,233,0.15); }
+.chip-btn:hover { border-color: var(--primary); color: #fff; background: rgba(14,165,233,0.25); transform: translateY(-1px); }
+.chip-btn:active { transform: translateY(0) scale(0.95); }
 .chart-canvas-wrap { flex: 1; position: relative; min-height: 0; }
 
 /* ── UUID MODAL ── */
