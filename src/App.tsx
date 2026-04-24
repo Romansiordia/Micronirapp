@@ -1737,15 +1737,15 @@ export default function App() {
                             
                             <div style={{ marginTop: '16px' }}>
                                 <div className="led-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '6px' }}>
-                                    <div className="led-badge" id="ledMCU" style={{ padding: '8px 2px', border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.1)', color: '#fff' }}><div className="d"></div>MCU</div>
-                                    <div className="led-badge" id="ledLAMP" style={{ padding: '8px 2px', border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.1)', color: '#fff' }}><div className="d"></div>LAMP</div>
-                                    <div className="led-badge" id="ledADC" style={{ padding: '8px 2px', border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.1)', color: '#fff' }}><div className="d"></div>ADC</div>
-                                    <div className="led-badge" id="ledDTR" style={{ padding: '8px 2px', border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.1)', color: '#fff' }}><div className="d"></div>PWR</div>
+                                    <div className="led-badge" id="ledMCU" style={{ padding: '8px 2px', border: '1px solid #fff', background: '#fff', color: 'var(--primary)', fontWeight: '700' }}><div className="d"></div>MCU</div>
+                                    <div className="led-badge" id="ledLAMP" style={{ padding: '8px 2px', border: '1px solid #fff', background: '#fff', color: 'var(--primary)', fontWeight: '700' }}><div className="d"></div>LAMP</div>
+                                    <div className="led-badge" id="ledADC" style={{ padding: '8px 2px', border: '1px solid #fff', background: '#fff', color: 'var(--primary)', fontWeight: '700' }}><div className="d"></div>ADC</div>
+                                    <div className="led-badge" id="ledDTR" style={{ padding: '8px 2px', border: '1px solid #fff', background: '#fff', color: 'var(--primary)', fontWeight: '700' }}><div className="d"></div>PWR</div>
                                 </div>
                                 <div className="signal-row" style={{ marginTop: '8px', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
-                                    <div className="sig-badge" id="sigDTR" style={{ fontSize: '0.55rem', border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.1)', color: '#fff' }}>DTR</div>
-                                    <div className="sig-badge" id="sigRTS" style={{ fontSize: '0.55rem', border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.1)', color: '#fff' }}>RTS</div>
-                                    <div className="sig-badge" id="sigLINK" style={{ fontSize: '0.55rem', border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.1)', color: '#fff' }}>LINK</div>
+                                    <div className="sig-badge" id="sigDTR" style={{ fontSize: '0.55rem', border: '1px solid #fff', background: '#fff', color: 'var(--primary)', fontWeight: '700' }}>DTR</div>
+                                    <div className="sig-badge" id="sigRTS" style={{ fontSize: '0.55rem', border: '1px solid #fff', background: '#fff', color: 'var(--primary)', fontWeight: '700' }}>RTS</div>
+                                    <div className="sig-badge" id="sigLINK" style={{ fontSize: '0.55rem', border: '1px solid #fff', background: '#fff', color: 'var(--primary)', fontWeight: '700' }}>LINK</div>
                                 </div>
                                 <div id="devId" style={{ fontSize: '0.55rem', color: 'rgba(255,255,255,0.7)', textAlign: 'center', marginTop: '10px', fontFamily: 'var(--mono)' }}>—</div>
                             </div>
