@@ -1847,81 +1847,81 @@ export default function App() {
                 <main className="content">
                     <div className="metrics-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
                         {/* CARD 1: CANAL DE DATOS */}
-                        <div className="metric-card" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem', boxShadow: '0 4px 12px rgba(0,0,0,0.05)', position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                            <div style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', height: '50%', background: 'linear-gradient(to top, rgba(14,165,233,0.15), transparent)', zIndex: 0 }}></div>
+                        <div className="metric-card" style={{ background: 'linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%)', border: '1px solid var(--primary)', borderRadius: '12px', padding: '1.25rem', boxShadow: '0 4px 12px rgba(14,165,233,0.3)', position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                            <div style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', height: '50%', background: 'linear-gradient(to top, rgba(255,255,255,0.1), transparent)', zIndex: 0 }}></div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', position: 'relative', zIndex: 1 }}>
-                                <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--dim)', fontWeight: '700' }}>Canal de Datos</span>
-                                <Cpu size={14} style={{ color: 'var(--primary)', opacity: 0.8 }} />
+                                <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.8)', fontWeight: '700' }}>Canal de Datos</span>
+                                <Cpu size={14} style={{ color: '#ffffff', opacity: 0.9 }} />
                             </div>
                             <div style={{ position: 'relative', zIndex: 1, marginTop: '8px' }}>
                                 <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
-                                    <span id="valMode" style={{ fontSize: '1.5rem', fontWeight: '800', color: 'var(--primary)', fontFamily: 'var(--mono)' }}>—</span>
+                                    <span id="valMode" style={{ fontSize: '1.5rem', fontWeight: '800', color: '#ffffff', fontFamily: 'var(--mono)' }}>—</span>
                                 </div>
                             </div>
-                            <div style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', height: '4px', background: 'var(--primary)', opacity: 0.6 }}></div>
+                            <div style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', height: '4px', background: 'rgba(255,255,255,0.3)', opacity: 0.6 }}></div>
                         </div>
 
                         {/* CARD 2: INTEGRACIÓN */}
-                        <div className="metric-card" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem', boxShadow: '0 4px 12px rgba(0,0,0,0.05)', position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                            <div style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', height: '50%', background: 'linear-gradient(to top, rgba(249,115,22,0.15), transparent)', zIndex: 0 }}></div>
+                        <div className="metric-card" style={{ background: 'linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%)', border: '1px solid var(--primary)', borderRadius: '12px', padding: '1.25rem', boxShadow: '0 4px 12px rgba(14,165,233,0.3)', position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                            <div style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', height: '50%', background: 'linear-gradient(to top, rgba(255,255,255,0.1), transparent)', zIndex: 0 }}></div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', position: 'relative', zIndex: 1 }}>
-                                <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--dim)', fontWeight: '700' }}>Integración</span>
-                                <Clock size={14} style={{ color: 'var(--orange)', opacity: 0.8 }} />
+                                <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.8)', fontWeight: '700' }}>Integración</span>
+                                <Clock size={14} style={{ color: '#ffffff', opacity: 0.9 }} />
                             </div>
                             <div style={{ position: 'relative', zIndex: 1, marginTop: '8px' }}>
                                 <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
-                                    <span id="valExp" style={{ fontSize: '1.5rem', fontWeight: '800', color: 'var(--orange)', fontFamily: 'var(--mono)' }}>—</span>
-                                    <span style={{ fontSize: '0.7rem', color: 'var(--dim)', fontWeight: '600' }}>ms</span>
+                                    <span id="valExp" style={{ fontSize: '1.5rem', fontWeight: '800', color: '#ffffff', fontFamily: 'var(--mono)' }}>—</span>
+                                    <span style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.7)', fontWeight: '600' }}>ms</span>
                                 </div>
                             </div>
-                            <div style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', height: '4px', background: 'var(--orange)', opacity: 0.6 }}></div>
+                            <div style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', height: '4px', background: 'rgba(255,255,255,0.3)', opacity: 0.6 }}></div>
                         </div>
 
                         {/* CARD 3: TEMPERATURA */}
-                        <div className="metric-card" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem', boxShadow: '0 4px 12px rgba(0,0,0,0.05)', position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                            <div style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', height: '50%', background: 'linear-gradient(to top, rgba(251,191,36,0.15), transparent)', zIndex: 0 }}></div>
+                        <div className="metric-card" style={{ background: 'linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%)', border: '1px solid var(--primary)', borderRadius: '12px', padding: '1.25rem', boxShadow: '0 4px 12px rgba(14,165,233,0.3)', position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                            <div style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', height: '50%', background: 'linear-gradient(to top, rgba(255,255,255,0.1), transparent)', zIndex: 0 }}></div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', position: 'relative', zIndex: 1 }}>
-                                <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--dim)', fontWeight: '700' }}>Temperatura</span>
-                                <Thermometer size={14} style={{ color: 'var(--warn)', opacity: 0.8 }} />
+                                <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.8)', fontWeight: '700' }}>Temperatura</span>
+                                <Thermometer size={14} style={{ color: '#ffffff', opacity: 0.9 }} />
                             </div>
                             <div style={{ position: 'relative', zIndex: 1, marginTop: '8px' }}>
                                 <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
-                                    <span id="valTemp" style={{ fontSize: '1.5rem', fontWeight: '800', color: 'var(--warn)', fontFamily: 'var(--mono)' }}>—</span>
-                                    <span style={{ fontSize: '0.7rem', color: 'var(--dim)', fontWeight: '600' }}>°C</span>
+                                    <span id="valTemp" style={{ fontSize: '1.5rem', fontWeight: '800', color: '#ffffff', fontFamily: 'var(--mono)' }}>—</span>
+                                    <span style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.7)', fontWeight: '600' }}>°C</span>
                                 </div>
                             </div>
-                            <div style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', height: '4px', background: 'var(--warn)', opacity: 0.6 }}></div>
+                            <div style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', height: '4px', background: 'rgba(255,255,255,0.3)', opacity: 0.6 }}></div>
                         </div>
 
                         {/* CARD 4: BATERÍA */}
-                        <div className="metric-card" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem', boxShadow: '0 4px 12px rgba(0,0,0,0.05)', position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                            <div style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', height: '50%', background: 'linear-gradient(to top, rgba(16,185,129,0.15), transparent)', zIndex: 0 }}></div>
+                        <div className="metric-card" style={{ background: 'linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%)', border: '1px solid var(--primary)', borderRadius: '12px', padding: '1.25rem', boxShadow: '0 4px 12px rgba(14,165,233,0.3)', position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                            <div style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', height: '50%', background: 'linear-gradient(to top, rgba(255,255,255,0.1), transparent)', zIndex: 0 }}></div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', position: 'relative', zIndex: 1 }}>
-                                <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--dim)', fontWeight: '700' }}>Nivel Batería</span>
-                                <Battery size={14} style={{ color: 'var(--green)', opacity: 0.8 }} />
+                                <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.8)', fontWeight: '700' }}>Nivel Batería</span>
+                                <Battery size={14} style={{ color: '#ffffff', opacity: 0.9 }} />
                             </div>
                             <div style={{ position: 'relative', zIndex: 1, marginTop: '8px' }}>
                                 <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
-                                    <span id="valBat" style={{ fontSize: '1.5rem', fontWeight: '800', color: 'var(--green)', fontFamily: 'var(--mono)' }}>—</span>
-                                    <span style={{ fontSize: '0.7rem', color: 'var(--dim)', fontWeight: '600' }}>%</span>
+                                    <span id="valBat" style={{ fontSize: '1.5rem', fontWeight: '800', color: '#ffffff', fontFamily: 'var(--mono)' }}>—</span>
+                                    <span style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.7)', fontWeight: '600' }}>%</span>
                                 </div>
                             </div>
-                            <div style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', height: '4px', background: 'var(--green)', opacity: 0.6 }}></div>
+                            <div style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', height: '4px', background: 'rgba(255,255,255,0.3)', opacity: 0.6 }}></div>
                         </div>
 
                         {/* CARD 5: SINCRONIZACIÓN */}
-                        <div className="metric-card" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '128', padding: '1.25rem', boxShadow: '0 4px 12px rgba(0,0,0,0.05)', position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                            <div style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', height: '50%', background: 'linear-gradient(to top, rgba(168,85,247,0.15), transparent)', zIndex: 0 }}></div>
+                        <div className="metric-card" style={{ background: 'linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%)', border: '1px solid var(--primary)', borderRadius: '12px', padding: '1.25rem', boxShadow: '0 4px 12px rgba(14,165,233,0.3)', position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                            <div style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', height: '50%', background: 'linear-gradient(to top, rgba(255,255,255,0.1), transparent)', zIndex: 0 }}></div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', position: 'relative', zIndex: 1 }}>
-                                <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--dim)', fontWeight: '700' }}>Sincronización</span>
-                                <Activity size={14} style={{ color: 'var(--purple)', opacity: 0.8 }} />
+                                <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.8)', fontWeight: '700' }}>Sincronización</span>
+                                <Activity size={14} style={{ color: '#ffffff', opacity: 0.9 }} />
                             </div>
                             <div style={{ position: 'relative', zIndex: 1, marginTop: '8px' }}>
                                 <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
-                                    <span id="valPkt" style={{ fontSize: '1.5rem', fontWeight: '800', color: 'var(--purple)', fontFamily: 'var(--mono)' }}>— / —</span>
+                                    <span id="valPkt" style={{ fontSize: '1.5rem', fontWeight: '800', color: '#ffffff', fontFamily: 'var(--mono)' }}>— / —</span>
                                 </div>
                             </div>
-                            <div style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', height: '4px', background: 'var(--purple)', opacity: 0.6 }}></div>
+                            <div style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', height: '4px', background: 'rgba(255,255,255,0.3)', opacity: 0.6 }}></div>
                         </div>
                     </div>
 
