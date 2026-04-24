@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Chart, registerables } from 'chart.js';
 
 Chart.register(...registerables);
@@ -64,6 +64,7 @@ class MicroNIRApp {
     chart: any;
     _timeoutAnim: any;
     lampReady: boolean;
+    onCalibUpdate?: (status: { dark: boolean, white: boolean }) => void;
     lampConfirmed: boolean;
     ignoreRxUntil: number;
     VAL: { ON: number; OFF: number };
@@ -1446,9 +1447,21 @@ class MicroNIRApp {
                 this.referenceData.white = [...spectrum];
                 this.log("✓ Referencia 'WHITE' guardada.", "log-default");
                 this.sendCmdData([0x21, 0x00, 0x00], 'lamp_off');
+                if (this.onCalibUpdate) {
+                    this.onCalibUpdate({ 
+                        dark: !!this.referenceData.dark, 
+                        white: true 
+                    });
+                }
             } else if (target === 'dark') {
                 this.referenceData.dark = [...spectrum];
                 this.log("✓ Referencia 'DARK' guardada.", "log-default");
+                if (this.onCalibUpdate) {
+                    this.onCalibUpdate({ 
+                        dark: true, 
+                        white: !!this.referenceData.white 
+                    });
+                }
             } else if (target === 'sample') {
                 this.log('✓ Análisis completado.', 'log-default');
                 this.sendCmdData([0x21, 0x00, 0x00], 'lamp_off');
@@ -1637,10 +1650,14 @@ class MicroNIRApp {
 
 export default function App() {
     const appRef = useRef<MicroNIRApp | null>(null);
+    const [calib, setCalib] = useState({ dark: false, white: false });
 
     useEffect(() => {
         if (!appRef.current) {
             appRef.current = new MicroNIRApp();
+            appRef.current.onCalibUpdate = (status) => {
+                setCalib(status);
+            };
             appRef.current.initChart();
             appRef.current.setMode('ble');
             appRef.current.renderHistory();
@@ -1867,48 +1884,58 @@ export default function App() {
                         
                         <button id="btnDark" className="btn" onClick={() => app()?.setDarkReference()} style={{ 
                             flex: 1, 
-                            backgroundColor: '#f8fafc', 
-                            color: '#475569', 
-                            border: '1px solid #e2e8f0', 
+                            backgroundColor: calib.dark ? 'rgba(6,182,212,0.1)' : '#f8fafc', 
+                            color: calib.dark ? '#0891b2' : '#475569', 
+                            border: calib.dark ? '2px solid #06b6d4' : '1px solid #e2e8f0', 
                             borderRadius: '12px',
                             display: 'flex',
                             flexDirection: 'column',
                             padding: '12px',
                             height: 'auto',
-                            transition: 'all 0.2s'
+                            transition: 'all 0.2s',
+                            boxShadow: calib.dark ? '0 0 15px rgba(6,182,212,0.1)' : 'none'
                         }}>
-                            <span style={{ fontSize: '0.6rem', opacity: 0.5, marginBottom: '4px' }}>PASO 01</span>
+                            <span style={{ fontSize: '0.6rem', opacity: calib.dark ? 0.8 : 0.5, marginBottom: '4px' }}>
+                                {calib.dark ? '✓ COMPLETADO' : 'PASO 01'}
+                            </span>
                             <span style={{ fontSize: '0.85rem', fontWeight: '800' }}>OSCURIDAD</span>
                         </button>
                         
                         <button id="btnWhite" className="btn" onClick={() => app()?.setWhiteReference()} style={{ 
                             flex: 1, 
-                            backgroundColor: '#f8fafc', 
-                            color: '#475569', 
-                            border: '1px solid #e2e8f0', 
+                            backgroundColor: calib.white ? 'rgba(6,182,212,0.1)' : '#f8fafc', 
+                            color: calib.white ? '#0891b2' : '#475569', 
+                            border: calib.white ? '2px solid #06b6d4' : '1px solid #e2e8f0', 
                             borderRadius: '12px',
                             display: 'flex',
                             flexDirection: 'column',
                             padding: '12px',
                             height: 'auto',
-                            transition: 'all 0.2s'
+                            transition: 'all 0.2s',
+                            boxShadow: calib.white ? '0 0 15px rgba(6,182,212,0.1)' : 'none'
                         }}>
-                            <span style={{ fontSize: '0.6rem', opacity: 0.5, marginBottom: '4px' }}>PASO 02</span>
+                            <span style={{ fontSize: '0.6rem', opacity: calib.white ? 0.8 : 0.5, marginBottom: '4px' }}>
+                                {calib.white ? '✓ COMPLETADO' : 'PASO 02'}
+                            </span>
                             <span style={{ fontSize: '0.85rem', fontWeight: '800' }}>BLANCO REFE.</span>
                         </button>
                         
                         <button id="btnAbs" className="btn" onClick={() => app()?.scanSample()} style={{ 
                             flex: 1.5, 
-                            background: 'linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%)', 
-                            color: '#fff', 
+                            background: (calib.dark && calib.white) 
+                                ? 'linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%)' 
+                                : '#e2e8f0', 
+                            color: (calib.dark && calib.white) ? '#fff' : '#94a3b8', 
                             border: 'none', 
                             borderRadius: '12px',
                             display: 'flex',
                             flexDirection: 'column',
                             padding: '12px',
                             height: 'auto',
-                            boxShadow: '0 10px 15px -3px rgba(14,165,233,0.3)',
-                            transition: 'all 0.2s'
+                            boxShadow: (calib.dark && calib.white) ? '0 10px 15px -3px rgba(14,165,233,0.3)' : 'none',
+                            transition: 'all 0.2s',
+                            cursor: (calib.dark && calib.white) ? 'pointer' : 'not-allowed',
+                            opacity: (calib.dark && calib.white) ? 1 : 0.7
                         }}>
                             <span style={{ fontSize: '0.6rem', opacity: 0.8, marginBottom: '4px' }}>PASO 03</span>
                             <span style={{ fontSize: '1rem', fontWeight: '900' }}>ANALIZAR MUESTRA</span>
