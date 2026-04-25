@@ -1,20 +1,20 @@
 @import "tailwindcss";
 
 :root {
-    --bg:       #f1f5f9;
-    --surface:  #ffffff;
-    --panel:    #f0f9ff; /* Soft Cyan/Ice Blue for secondary panels */
-    --border:   #e2e8f0;
-    --border2:  #94a3b8;
-    --primary:  #0ea5e9;
-    --primary2: rgba(14,165,233,.12);
-    --green:    #10b981;
+    --bg:       #020617; /* Very Deep Navy */
+    --surface:  #0f172a; /* Card/Panel Navy */
+    --panel:    #1e293b; /* Drawer/Secondary surface */
+    --border:   #334155; 
+    --border2:  #475569;
+    --primary:  #38bdf8; /* Bright Cyan */
+    --primary2: rgba(56,189,248,.15);
+    --green:    #22c55e;
     --orange:   #f97316;
     --warn:     #eab308;
     --red:      #ef4444;
-    --purple:   #8b5cf6;
-    --text:     #1e293b;
-    --dim:      #64748b;
+    --purple:   #a855f7;
+    --text:     #f1f5f9; /* Near white text */
+    --dim:      #94a3b8; /* Muted gray-blue */
     --mono: 'Share Tech Mono', monospace;
     --sans: 'Exo 2', sans-serif;
 }
@@ -23,18 +23,18 @@
 
 body {
     font-family: var(--sans);
-    background: var(--bg);
+    background: radial-gradient(circle at 50% 50%, #0f172a 0%, #020617 100%);
     color: var(--text);
     min-height: 100vh;
     display: flex;
     flex-direction: column;
 }
 
-/* CRT scanlines - reduced opacity for light theme */
+/* CRT scanlines - optimized for dark theme */
 body::after {
     content: '';
     position: fixed; inset: 0;
-    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,.012) 2px, rgba(0,0,0,.012) 4px);
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,.015) 2px, rgba(255,255,255,.015) 4px);
     pointer-events: none; z-index: 9999;
 }
 
