@@ -1466,6 +1466,10 @@ class MicroNIRApp {
             } else if (target === 'sample') {
                 this.log('✓ Análisis completado.', 'log-default');
                 this.sendCmdData([0x21, 0x00, 0x00], 'lamp_off');
+                // Auto-descarga CSV tras 1.5s
+                setTimeout(() => {
+                    this.exportCSV();
+                }, 1500);
             }
         } finally {
             if (!this.isAveragingInProgress) {
