@@ -114,9 +114,10 @@ header {
 /* ── SIDEBAR ── */
 .sidebar {
     width: 290px; flex-shrink: 0;
-    background: var(--surface);
-    border-right: 1px solid var(--border);
-    box-shadow: 2px 0 8px rgba(0,0,0,0.03);
+    background: rgba(14, 25, 45, 0.6);
+    backdrop-filter: blur(12px);
+    border-right: 1px solid rgba(14, 165, 233, 0.3);
+    box-shadow: 5px 0 20px rgba(0,0,0,0.4);
     display: flex; flex-direction: column;
     padding: .85rem; gap: .7rem;
     overflow-y: auto;
@@ -124,11 +125,13 @@ header {
 }
 
 .sec-label {
-    font-family: var(--mono); font-size: .58rem;
-    color: var(--dim); letter-spacing: .16em;
-    padding-bottom: 5px;
-    border-bottom: 1px solid var(--border);
-    margin-bottom: 2px;
+    font-family: var(--mono); font-size: .6rem;
+    color: #0ea5e9; letter-spacing: .12em;
+    font-weight: 800;
+    padding-bottom: 6px;
+    border-bottom: 1px solid rgba(14, 165, 233, 0.2);
+    margin-bottom: 4px;
+    text-transform: uppercase;
 }
 
 /* HW panel */

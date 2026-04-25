@@ -1712,159 +1712,161 @@ export default function App() {
             <div className="main">
                 <aside className="sidebar">
                     <div style={{ 
-                        border: '1px solid var(--primary)', 
+                        border: '1px solid rgba(14, 165, 233, 0.3)', 
                         borderRadius: '12px', 
-                        padding: '12px', 
-                        background: 'linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%)', 
-                        marginBottom: '15px',
-                        boxShadow: '0 4px 12px rgba(14,165,233,0.3)',
-                        transition: 'all 0.3s ease'
+                        padding: '16px 12px', 
+                        background: 'rgba(14, 25, 45, 0.4)', 
+                        backdropFilter: 'blur(10px)',
+                        marginBottom: '20px',
+                        transition: 'all 0.3s ease',
+                        position: 'relative'
                     }}>
-                        <details style={{ cursor: 'pointer' }}>
+                        <details style={{ cursor: 'pointer', position: 'relative', zIndex: 1 }} open>
                             <summary style={{ 
                                 listStyle: 'none', 
                                 display: 'flex', 
                                 justifyContent: 'space-between', 
                                 alignItems: 'center',
                                 outline: 'none'
-                            }}>
+                             }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#4ade80', boxShadow: '0 0 8px rgba(74,222,128,0.6)' }}></div>
-                                    <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#ffffff', letterSpacing: '-0.01em' }}>DIAGNÓSTICO HW</span>
+                                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#4ade80', boxShadow: '0 0 12px rgba(74,222,128,0.8)' }}></div>
+                                    <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#0ea5e9', letterSpacing: '0.05em', textTransform: 'uppercase' }}>DIAGNÓSTICO HW</span>
                                 </div>
-                                <span style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.8)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Detalles</span>
+                                <Activity size={14} style={{ color: '#0ea5e9', opacity: 0.7 }} />
                             </summary>
                             
                             <div style={{ marginTop: '16px' }}>
                                 <div className="led-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '6px' }}>
-                                    <div className="led-badge" id="ledMCU" style={{ padding: '8px 2px', border: '1px solid #fff', background: '#fff', color: 'var(--primary)', fontWeight: '700' }}><div className="d"></div>MCU</div>
-                                    <div className="led-badge" id="ledLAMP" style={{ padding: '8px 2px', border: '1px solid #fff', background: '#fff', color: 'var(--primary)', fontWeight: '700' }}><div className="d"></div>LAMP</div>
-                                    <div className="led-badge" id="ledADC" style={{ padding: '8px 2px', border: '1px solid #fff', background: '#fff', color: 'var(--primary)', fontWeight: '700' }}><div className="d"></div>ADC</div>
-                                    <div className="led-badge" id="ledDTR" style={{ padding: '8px 2px', border: '1px solid #fff', background: '#fff', color: 'var(--primary)', fontWeight: '700' }}><div className="d"></div>PWR</div>
+                                    <div className="led-badge" id="ledMCU" style={{ padding: '8px 2px', border: 'none', borderRadius: '8px', background: '#fff', color: '#0284c7', fontWeight: '900', fontSize: '0.55rem', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}><div className="d"></div>MCU</div>
+                                    <div className="led-badge" id="ledLAMP" style={{ padding: '8px 2px', border: 'none', borderRadius: '8px', background: '#fff', color: '#0284c7', fontWeight: '900', fontSize: '0.55rem', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}><div className="d"></div>LAMP</div>
+                                    <div className="led-badge" id="ledADC" style={{ padding: '8px 2px', border: 'none', borderRadius: '8px', background: '#fff', color: '#0284c7', fontWeight: '900', fontSize: '0.55rem', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}><div className="d"></div>ADC</div>
+                                    <div className="led-badge" id="ledDTR" style={{ padding: '8px 2px', border: 'none', borderRadius: '8px', background: '#fff', color: '#0284c7', fontWeight: '900', fontSize: '0.55rem', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}><div className="d"></div>PWR</div>
                                 </div>
                                 <div className="signal-row" style={{ marginTop: '8px', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
-                                    <div className="sig-badge" id="sigDTR" style={{ fontSize: '0.55rem', border: '1px solid #fff', background: '#fff', color: 'var(--primary)', fontWeight: '700' }}>DTR</div>
-                                    <div className="sig-badge" id="sigRTS" style={{ fontSize: '0.55rem', border: '1px solid #fff', background: '#fff', color: 'var(--primary)', fontWeight: '700' }}>RTS</div>
-                                    <div className="sig-badge" id="sigLINK" style={{ fontSize: '0.55rem', border: '1px solid #fff', background: '#fff', color: 'var(--primary)', fontWeight: '700' }}>LINK</div>
+                                    <div className="sig-badge" id="sigDTR" style={{ fontSize: '0.5rem', border: 'none', borderRadius: '5px', background: '#fff', color: '#0284c7', fontWeight: '900', padding: '4px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>DTR</div>
+                                    <div className="sig-badge" id="sigRTS" style={{ fontSize: '0.5rem', border: 'none', borderRadius: '5px', background: '#fff', color: '#0284c7', fontWeight: '900', padding: '4px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>RTS</div>
+                                    <div className="sig-badge" id="sigLINK" style={{ fontSize: '0.5rem', border: 'none', borderRadius: '5px', background: '#fff', color: '#0284c7', fontWeight: '900', padding: '4px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>LINK</div>
                                 </div>
-                                <div id="devId" style={{ fontSize: '0.55rem', color: 'rgba(255,255,255,0.7)', textAlign: 'center', marginTop: '10px', fontFamily: 'var(--mono)' }}>—</div>
+                                <div id="devId" style={{ fontSize: '0.55rem', color: 'rgba(14, 165, 233, 0.7)', textAlign: 'center', marginTop: '12px', fontFamily: 'var(--mono)', fontWeight: '700', letterSpacing: '0.05em' }}>—</div>
                             </div>
                         </details>
                     </div>
 
                     <div className="uuid-box" id="uuidBox" style={{ 
-                        background: 'linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%)', 
-                        border: '1px solid var(--primary)',
-                        borderRadius: '10px',
-                        padding: '12px',
-                        boxShadow: '0 4px 12px rgba(14,165,233,0.2)'
+                        background: 'rgba(14, 25, 45, 0.4)', 
+                        backdropFilter: 'blur(10px)',
+                        border: '1px solid rgba(14, 165, 233, 0.3)',
+                        borderRadius: '12px',
+                        padding: '16px 12px',
+                        position: 'relative',
+                        marginBottom: '20px',
+                        boxShadow: '0 4px 15px rgba(0,0,0,0.2)'
                     }}>
-                        <div className="sec-label" style={{ color: '#fff', opacity: 0.9 }}>UUID Servicio BLE (opcional)</div>
+                        <div className="sec-label" style={{ color: '#0ea5e9', fontWeight: '800', border: 'none', fontSize: '0.65rem', textTransform: 'uppercase', marginBottom: '8px', padding: 0 }}>UUID SERVICIO BLE</div>
                         <input id="customUUIDInput" type="text"
-                            placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
                             onInput={(e: any) => { if (appRef.current) appRef.current.customServiceUUID = e.target.value.trim().toLowerCase() || null; }}
                             style={{ 
-                                background: '#fff', 
-                                color: 'var(--text)', 
-                                border: '1px solid rgba(255,255,255,0.3)',
-                                outline: 'none'
+                                background: 'rgba(0,0,0,0.2)', 
+                                color: '#fff', 
+                                border: '1px solid rgba(14, 165, 233, 0.3)',
+                                outline: 'none',
+                                position: 'relative',
+                                zIndex: 1,
+                                width: '100%',
+                                padding: '10px',
+                                borderRadius: '8px',
+                                fontSize: '0.65rem',
+                                fontFamily: 'var(--mono)'
                              } as any}
+                            placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
                         />
-                        <div style={{fontSize:'.58rem', color:'rgba(255,255,255,0.7)', marginTop:'3px'}}>
-                            Vacío = detección automática. Usa nRF Connect para obtenerlo.
-                        </div>
                     </div>
 
-                    <div className="serial-cfg" id="serialCfg">
-                        <label>Baud Rate
-                            <select id="baudRate" defaultValue="115200">
-                                <option value="9600">9600</option>
-                                <option value="19200">19200</option>
-                                <option value="57600">57600</option>
-                                <option value="115200">115200 (MicroNIR)</option>
-                            </select>
-                        </label>
-                    </div>
-
-                    <div id="bleSection">
+                    <div id="bleSection" style={{ marginBottom: '20px' }}>
                         <button className="btn" onClick={() => app()?.connect()} style={{ 
-                            background: 'linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%)', 
-                            color: '#fff', 
-                            border: 'none', 
-                            borderRadius: '10px', 
-                            padding: '12px',
-                            boxShadow: '0 4px 6px -1px rgba(14,165,233,0.3)',
-                            fontWeight: '700'
+                            background: 'rgba(14, 165, 233, 0.1)', 
+                            color: '#0ea5e9', 
+                            border: '1px solid rgba(14, 165, 233, 0.4)', 
+                            borderRadius: '12px', 
+                            padding: '14px',
+                            boxShadow: '0 4px 15px rgba(0,0,0,0.2)',
+                            fontWeight: '800',
+                            backdropFilter: 'blur(10px)',
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.08em',
+                            fontSize: '0.7rem'
                         }}>
-                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{marginRight: '8px'}}><path d="M6.5 6.5l11 11M17.5 6.5l-11 11M12 2v20"/></svg>
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{marginRight: '8px', filter: 'drop-shadow(0 0 5px rgba(14, 165, 233, 0.5))'}}><path d="M6.5 6.5l11 11M17.5 6.5l-11 11M12 2v20"/></svg>
                             CONECTAR MICRO-NIR
                         </button>
 
                         <button id="btnDisc" className="btn" onClick={() => window.location.reload()} style={{ 
-                            marginTop: '10px',
-                            background: 'linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%)',
-                            border: '1px solid var(--primary)',
-                            color: '#fff',
-                            borderRadius: '10px',
-                            fontSize: '0.65rem',
-                            fontWeight: '800',
-                            boxShadow: '0 4px 12px rgba(14,165,233,0.2)',
+                            marginTop: '12px',
+                            background: 'transparent',
+                            border: '1px solid rgba(239, 68, 68, 0.2)',
+                            color: 'rgba(239, 68, 68, 0.6)',
+                            borderRadius: '12px',
+                            fontSize: '0.6rem',
+                            fontWeight: '700',
                             width: '100%',
                             display: 'flex',
                             alignItems: 'center',
-                            justifyContent: 'center'
+                            justifyContent: 'center',
+                            padding: '10px',
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.05em'
                         }}>
-                            <PowerOff size={14} style={{marginRight: '8px'}}/>
-                            DESCONECTAR MICRO-NIR
+                            <PowerOff size={14} style={{marginRight: '8px', opacity: 0.5}}/>
+                            Desconectar
                         </button>
-                    </div>
-
-                    <div id="usbSection" style={{display:'none'}}>
-                        <button className="btn btn-primary" onClick={() => app()?.connectUSB()}>
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="7" y="8" width="10" height="8" rx="1"/><path d="M12 2v6"/></svg>
-                            Conectar PC Bluetooth / USB
-                        </button>
-                    </div>
-
-                    <div className="timeout-bar-wrap" id="timeoutBarWrap">
-                        <div className="timeout-bar" id="timeoutBar" style={{width:'100%'}}></div>
-                    </div>
-
-                    <div className="btn-row">
                     </div>
 
                     <div className="history-section" style={{ 
-                        background: 'linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%)', 
-                        border: '1px solid var(--primary)',
-                        borderRadius: '10px',
-                        marginBottom: '10px',
-                        boxShadow: '0 4px 12px rgba(14,165,233,0.2)'
+                        background: 'rgba(14, 25, 45, 0.4)', 
+                        backdropFilter: 'blur(10px)',
+                        border: '1px solid rgba(14, 165, 233, 0.3)',
+                        borderRadius: '12px',
+                        position: 'relative',
+                        overflow: 'hidden',
+                        flex: 1,
+                        display: 'flex',
+                        flexDirection: 'column'
                     }}>
-                        <div className="history-hdr" style={{ borderBottom: '1px solid rgba(255,255,255,0.2)' }}>
-                            <div className="sec-label" style={{ color: '#fff' }}>Historial de Calidad</div>
-                            <button className="h-clear" onClick={() => app()?.clearHistory()} style={{ color: '#fff', opacity: 0.8 }}>Limpiar</button>
+                        <div className="history-hdr" style={{ borderBottom: '1px solid rgba(14, 165, 233, 0.1)', position: 'relative', zIndex: 1, padding: '12px' }}>
+                            <div className="sec-label" style={{ color: '#0ea5e9', fontWeight: '800', border: 'none', marginBottom: 0, fontSize: '0.65rem', textTransform: 'uppercase', padding: 0 }}>HISTORIAL</div>
+                            <button className="h-clear" onClick={() => app()?.clearHistory()} style={{ color: 'rgba(239, 68, 68, 0.6)', fontWeight: '800', fontSize: '0.55rem', textTransform: 'uppercase' }}>Limpiar</button>
                         </div>
-                        <div id="historyList" className="history-list">
-                            <div className="dim-text" style={{fontSize:'.65rem', padding:'10px', color: 'rgba(255,255,255,0.6)' }}>Sin historial...</div>
+                        <div id="historyList" className="history-list" style={{ position: 'relative', zIndex: 1, flex: 1, overflowY: 'auto' }}>
+                            <div className="dim-text" style={{fontSize:'.65rem', padding:'20px', color: 'rgba(14, 165, 233, 0.3)', fontWeight: '600' }}>Sin historial...</div>
                         </div>
                     </div>
 
-                    <div className="console-wrap" style={{ display: 'flex', flexDirection: 'column', border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden', marginTop: '15px' }}>
+                    <div className="console-wrap" style={{ 
+                        display: 'flex', 
+                        flexDirection: 'column', 
+                        border: '1px solid rgba(14, 165, 233, 0.3)', 
+                        borderRadius: '12px', 
+                        overflow: 'hidden', 
+                        marginTop: '15px',
+                        background: 'rgba(14, 25, 45, 0.4)',
+                        backdropFilter: 'blur(10px)'
+                    }}>
                         <details style={{ width: '100%' }}>
                             <summary style={{ 
                                 padding: '10px 12px', 
-                                background: 'linear-gradient(90deg, #0ea5e9 0%, #0284c7 100%)', 
+                                background: 'rgba(14, 165, 233, 0.1)', 
                                 cursor: 'pointer', 
                                 display: 'flex', 
                                 justifyContent: 'space-between', 
                                 alignItems: 'center',
                                 userSelect: 'none',
                                 listStyle: 'none',
-                                borderBottom: '1px solid var(--primary)'
+                                borderBottom: '1px solid rgba(14, 165, 233, 0.3)'
                             }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                    <Activity size={12} style={{ color: '#fff' }} />
-                                    <span style={{ fontSize: '0.65rem', fontWeight: '800', color: '#fff', letterSpacing: '-0.01em' }}>CONSOLA / DEBUG</span>
+                                    <Activity size={12} style={{ color: '#0ea5e9' }} />
+                                    <span style={{ fontSize: '0.65rem', fontWeight: '800', color: 'rgba(14, 165, 233, 0.9)', letterSpacing: '-0.01em' }}>CONSOLA / DEBUG</span>
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                     <button className="chip-btn" id="btnPause" onClick={(e: any) => { 
@@ -1894,8 +1896,8 @@ export default function App() {
                         <div className="metric-card" style={{ background: 'rgba(14, 25, 45, 0.4)', backdropFilter: 'blur(10px)', border: '1px solid rgba(14, 165, 233, 0.3)', borderRadius: '12px', padding: '1.25rem', boxShadow: '0 4px 15px rgba(0,0,0,0.2)', position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                             <div style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', height: '50%', background: 'linear-gradient(to top, rgba(14, 165, 233, 0.1), transparent)', zIndex: 0 }}></div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', position: 'relative', zIndex: 1 }}>
-                                <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(14, 165, 233, 0.9)', fontWeight: '700' }}>Canal de Datos</span>
-                                <Cpu size={20} style={{ color: '#0ea5e9', opacity: 1, filter: 'drop-shadow(0 0 8px rgba(14, 165, 233, 0.5))' }} />
+                                <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: '#0ea5e9', fontWeight: '800' }}>Canal de Datos</span>
+                                <Cpu size={20} style={{ color: '#0ea5e9', opacity: 1, filter: 'drop-shadow(0 0 8px rgba(14, 165, 233, 0.6))' }} />
                             </div>
                             <div style={{ position: 'relative', zIndex: 1, marginTop: '8px' }}>
                                 <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
@@ -1909,13 +1911,13 @@ export default function App() {
                         <div className="metric-card" style={{ background: 'rgba(14, 25, 45, 0.4)', backdropFilter: 'blur(10px)', border: '1px solid rgba(14, 165, 233, 0.3)', borderRadius: '12px', padding: '1.25rem', boxShadow: '0 4px 15px rgba(0,0,0,0.2)', position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                             <div style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', height: '50%', background: 'linear-gradient(to top, rgba(14, 165, 233, 0.1), transparent)', zIndex: 0 }}></div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', position: 'relative', zIndex: 1 }}>
-                                <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(14, 165, 233, 0.9)', fontWeight: '700' }}>Integración</span>
-                                <Clock size={20} style={{ color: '#0ea5e9', opacity: 1, filter: 'drop-shadow(0 0 8px rgba(14, 165, 233, 0.5))' }} />
+                                <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: '#0ea5e9', fontWeight: '800' }}>Integración</span>
+                                <Clock size={20} style={{ color: '#0ea5e9', opacity: 1, filter: 'drop-shadow(0 0 8px rgba(14, 165, 233, 0.6))' }} />
                             </div>
                             <div style={{ position: 'relative', zIndex: 1, marginTop: '8px' }}>
                                 <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
                                     <span id="valExp" style={{ fontSize: '1.5rem', fontWeight: '800', color: '#ffffff', fontFamily: 'var(--mono)', textShadow: '0 2px 10px rgba(0,0,0,0.5)' }}>—</span>
-                                    <span style={{ fontSize: '0.7rem', color: 'rgba(14, 165, 233, 0.7)', fontWeight: '600' }}>ms</span>
+                                    <span style={{ fontSize: '0.7rem', color: '#0ea5e9', fontWeight: '700' }}>ms</span>
                                 </div>
                             </div>
                             <div style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', height: '4px', background: 'rgba(14, 165, 233, 0.3)', opacity: 0.6 }}></div>
@@ -1925,13 +1927,13 @@ export default function App() {
                         <div className="metric-card" style={{ background: 'rgba(14, 25, 45, 0.4)', backdropFilter: 'blur(10px)', border: '1px solid rgba(14, 165, 233, 0.3)', borderRadius: '12px', padding: '1.25rem', boxShadow: '0 4px 15px rgba(0,0,0,0.2)', position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                             <div style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', height: '50%', background: 'linear-gradient(to top, rgba(14, 165, 233, 0.1), transparent)', zIndex: 0 }}></div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', position: 'relative', zIndex: 1 }}>
-                                <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(14, 165, 233, 0.9)', fontWeight: '700' }}>Temperatura</span>
-                                <Thermometer size={20} style={{ color: '#0ea5e9', opacity: 1, filter: 'drop-shadow(0 0 8px rgba(14, 165, 233, 0.5))' }} />
+                                <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: '#0ea5e9', fontWeight: '800' }}>Temperatura</span>
+                                <Thermometer size={20} style={{ color: '#0ea5e9', opacity: 1, filter: 'drop-shadow(0 0 8px rgba(14, 165, 233, 0.6))' }} />
                             </div>
                             <div style={{ position: 'relative', zIndex: 1, marginTop: '8px' }}>
                                 <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
                                     <span id="valTemp" style={{ fontSize: '1.5rem', fontWeight: '800', color: '#ffffff', fontFamily: 'var(--mono)', textShadow: '0 2px 10px rgba(0,0,0,0.5)' }}>—</span>
-                                    <span style={{ fontSize: '0.7rem', color: 'rgba(14, 165, 233, 0.7)', fontWeight: '600' }}>°C</span>
+                                    <span style={{ fontSize: '0.7rem', color: '#0ea5e9', fontWeight: '700' }}>°C</span>
                                 </div>
                             </div>
                             <div style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', height: '4px', background: 'rgba(14, 165, 233, 0.3)', opacity: 0.6 }}></div>
@@ -1941,13 +1943,13 @@ export default function App() {
                         <div className="metric-card" style={{ background: 'rgba(14, 25, 45, 0.4)', backdropFilter: 'blur(10px)', border: '1px solid rgba(14, 165, 233, 0.3)', borderRadius: '12px', padding: '1.25rem', boxShadow: '0 4px 15px rgba(0,0,0,0.2)', position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                             <div style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', height: '50%', background: 'linear-gradient(to top, rgba(14, 165, 233, 0.1), transparent)', zIndex: 0 }}></div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', position: 'relative', zIndex: 1 }}>
-                                <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(14, 165, 233, 0.9)', fontWeight: '700' }}>Nivel Batería</span>
-                                <Battery size={20} style={{ color: '#0ea5e9', opacity: 1, filter: 'drop-shadow(0 0 8px rgba(14, 165, 233, 0.5))' }} />
+                                <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: '#0ea5e9', fontWeight: '800' }}>Nivel Batería</span>
+                                <Battery size={20} style={{ color: '#0ea5e9', opacity: 1, filter: 'drop-shadow(0 0 8px rgba(14, 165, 233, 0.6))' }} />
                             </div>
                             <div style={{ position: 'relative', zIndex: 1, marginTop: '8px' }}>
                                 <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
                                     <span id="valBat" style={{ fontSize: '1.5rem', fontWeight: '800', color: '#ffffff', fontFamily: 'var(--mono)', textShadow: '0 2px 10px rgba(0,0,0,0.5)' }}>—</span>
-                                    <span style={{ fontSize: '0.7rem', color: 'rgba(14, 165, 233, 0.7)', fontWeight: '600' }}>%</span>
+                                    <span style={{ fontSize: '0.7rem', color: '#0ea5e9', fontWeight: '700' }}>%</span>
                                 </div>
                             </div>
                             <div style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', height: '4px', background: 'rgba(14, 165, 233, 0.3)', opacity: 0.6 }}></div>
@@ -1957,12 +1959,12 @@ export default function App() {
                         <div className="metric-card" style={{ background: 'rgba(14, 25, 45, 0.4)', backdropFilter: 'blur(10px)', border: '1px solid rgba(14, 165, 233, 0.3)', borderRadius: '12px', padding: '1.25rem', boxShadow: '0 4px 15px rgba(0,0,0,0.2)', position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                             <div style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', height: '50%', background: 'linear-gradient(to top, rgba(14, 165, 233, 0.1), transparent)', zIndex: 0 }}></div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', position: 'relative', zIndex: 1 }}>
-                                <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(14, 165, 233, 0.9)', fontWeight: '700' }}>Sincronización</span>
-                                <Activity size={20} style={{ color: '#0ea5e9', opacity: 1, filter: 'drop-shadow(0 0 8px rgba(14, 165, 233, 0.5))' }} />
+                                <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: '#0ea5e9', fontWeight: '800' }}>Sincronización</span>
+                                <Activity size={20} style={{ color: '#0ea5e9', opacity: 1, filter: 'drop-shadow(0 0 8px rgba(14, 165, 233, 0.6))' }} />
                             </div>
                             <div style={{ position: 'relative', zIndex: 1, marginTop: '8px' }}>
                                 <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
-                                    <span id="valPkt" style={{ fontSize: '1.5rem', fontWeight: '800', color: '#ffffff', fontFamily: 'var(--mono)', textShadow: '0 2px 10px rgba(0,0,0,0.5)' }}>— / —</span>
+                                    <span id="valPkt" style={{ fontSize: '1.55rem', fontWeight: '800', color: '#ffffff', fontFamily: 'var(--mono)', textShadow: '0 2px 10px rgba(0,0,0,0.5)' }}>— / —</span>
                                 </div>
                             </div>
                             <div style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', height: '4px', background: 'rgba(14, 165, 233, 0.3)', opacity: 0.6 }}></div>
