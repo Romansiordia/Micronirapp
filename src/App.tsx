@@ -5,7 +5,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Chart, registerables } from 'chart.js';
-import { Cpu, Clock, Thermometer, Battery, Activity, Moon, Sun, Zap, Lock, Unlock, PowerOff } from 'lucide-react';
+import { Cpu, Clock, Thermometer, Battery, Activity, Moon, Sun, Zap, Lock, Unlock, PowerOff, Database, FileJson, ChevronDown, Plus, Trash2 } from 'lucide-react';
 
 Chart.register(...registerables);
 
@@ -71,6 +71,9 @@ class MicroNIRApp {
     VAL: { ON: number; OFF: number };
     history: { id: string, name: string, lot?: string, data: number[], time: number }[];
     sampleData: { id: string; name: string; lot: string };
+    onPrediction?: (res: { property: string, value: number, unit: string } | null) => void;
+    onPredictionState?: (loading: boolean) => void;
+    currentModel: any | null = null;
 
     constructor() {
         this.STX = 0x02;
@@ -1466,10 +1469,20 @@ class MicroNIRApp {
             } else if (target === 'sample') {
                 this.log('✓ Análisis completado.', 'log-default');
                 this.sendCmdData([0x21, 0x00, 0x00], 'lamp_off');
-                // Auto-descarga CSV tras 1.5s
-                setTimeout(() => {
-                    this.exportCSV();
-                }, 1500);
+
+                // LÓGICA DE PREDICCIÓN CON MODELO JSON
+                if (this.currentModel && this.referenceData.dark && this.referenceData.white) {
+                    this.log('Iniciando motor de predicción...', 'log-sys');
+                    const absorbanceForPrediction = spectrum.map((S, i) => {
+                        const D = this.referenceData.dark![i] || 0;
+                        const W = this.referenceData.white![i] || 1;
+                        const R = Math.max((S - D) / (W - D <= 0 ? 1 : W - D), 0.00001);
+                        return -Math.log10(R);
+                    });
+                    this.performPrediction(absorbanceForPrediction);
+                }
+
+                // Auto-descarga CSV eliminada por solicitud del usuario
             }
         } finally {
             if (!this.isAveragingInProgress) {
@@ -1650,12 +1663,149 @@ class MicroNIRApp {
         });
     }
 
+    performPrediction(absorbance: number[]) {
+        try {
+            const m = this.currentModel;
+            if (this.onPredictionState) this.onPredictionState(true);
+            
+            this.log(`Iniciando motor de predicción para ${m.analyticalProperty}...`, 'log-sys');
+            
+            // Simular tiempo de procesamiento (2.5 segundos) para "sentir" el cálculo
+            setTimeout(() => {
+                try {
+                    let processed = [...absorbance];
+
+                    // 1. Aplicar Pre-procesamiento en Cascada (Lógica Spectra Pro)
+                    if (m.preprocessing && Array.isArray(m.preprocessing)) {
+                        for (const step of m.preprocessing) {
+                            const method = (step.method || '').toLowerCase();
+                            this.log(`Procesando: ${method.toUpperCase()}...`, 'log-default');
+                            
+                            if (method === 'snv') {
+                                processed = this.applySNV(processed);
+                            } else if (method === 'msc') {
+                                const ref = m.metrics?.referenceSpectrum || m.referenceSpectrum;
+                                processed = this.applyMSC(processed, ref);
+                            } else if (method.includes('savgol')) {
+                                const deriv = method.includes('1') ? 1 : (method.includes('2') ? 2 : 0);
+                                processed = this.applySavGol(processed, step.params?.windowSize || 11, step.params?.polynomialOrder || 2, deriv);
+                            }
+                        }
+                    }
+
+                    // 2. Aplicar Ecuación de Regresión PLS
+                    const intercept = m.metrics?.plsIntercept ?? m.plsIntercept ?? 0;
+                    const coeffs = m.metrics?.coefficients || m.coefficients;
+                    
+                    if (!coeffs) throw new Error("Faltan coeficientes de regresión");
+
+                    let prediction = intercept;
+                    const len = Math.min(processed.length, coeffs.length);
+                    for (let i = 0; i < len; i++) {
+                        prediction += processed[i] * coeffs[i];
+                    }
+
+                    this.log(`Predicción final [${m.analyticalProperty}]: ${prediction.toFixed(4)}`, 'log-warn');
+                    
+                    const result = {
+                        property: m.analyticalProperty,
+                        value: prediction,
+                        unit: m.unit || '%'
+                    };
+
+                    if (this.onPrediction) this.onPrediction(result);
+                    if (this.onPredictionState) this.onPredictionState(false);
+                } catch (e: any) {
+                    this.log(`Error en cálculo: ${e.message}`, 'log-err');
+                    if (this.onPredictionState) this.onPredictionState(false);
+                }
+            }, 2500); // 2.5 segundos de "pensamiento"
+
+        } catch (e: any) {
+            this.log(`Error al iniciar predicción: ${e.message}`, 'log-err');
+            if (this.onPredictionState) this.onPredictionState(false);
+        }
+    }
+
+    applySNV(x: number[]) {
+        const mean = x.reduce((a, b) => a + b, 0) / x.length;
+        const std = Math.sqrt(x.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / (x.length - 1));
+        return x.map(v => (v - mean) / std);
+    }
+
+    applyMSC(x: number[], ref: number[]) {
+        if (!ref || ref.length !== x.length) return x;
+        // Regresión lineal x = a*ref + b
+        const n = x.length;
+        let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+        for (let i = 0; i < n; i++) {
+            sumX += ref[i];
+            sumY += x[i];
+            sumXY += ref[i] * x[i];
+            sumXX += ref[i] * ref[i];
+        }
+        const a = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
+        const b = (sumY - a * sumX) / n;
+        // x_msc = (x - b) / a
+        return x.map(v => (v - b) / (a || 1));
+    }
+
+    applySavGol(x: number[], window: number, poly: number, deriv: number) {
+        // Implementación simplificada de Savitzky-Golay (1ra derivada)
+        // Para window 11, poly 2, deriv 1
+        if (window !== 11) return x; // Fallback si el modelo usa otra ventana (por ahora)
+        
+        // Coeficientes pre-calculados para Window=11, Poly=2, Deriv=1 (Escalados por 1/110)
+        // [5, 4, 3, 2, 1, 0, -1, -2, -3, -4, -5] * (1 / sum(i^2))
+        const coeffs = [5, 4, 3, 2, 1, 0, -1, -2, -3, -4, -5];
+        const norm = 110; 
+        
+        const out = new Array(x.length).fill(0);
+        const half = 5;
+        for (let i = half; i < x.length - half; i++) {
+            let sum = 0;
+            for (let j = -half; j <= half; j++) {
+                sum += x[i + j] * coeffs[j + half];
+            }
+            out[i] = sum / norm;
+        }
+        // Rellenar bordes
+        for (let i = 0; i < half; i++) out[i] = out[half];
+        for (let i = x.length - half; i < x.length; i++) out[i] = out[x.length - half - 1];
+        
+        return out;
+    }
+
     sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
+}
+
+export interface PredictionModel {
+    id: string;
+    name: string;
+    product: string;
+    json: any;
 }
 
 export default function App() {
     const appRef = useRef<MicroNIRApp | null>(null);
     const [calib, setCalib] = useState({ dark: false, white: false });
+    const [models, setModels] = useState<PredictionModel[]>(() => {
+        const saved = localStorage.getItem('mn_models');
+        return saved ? JSON.parse(saved) : [];
+    });
+    const [selectedModelId, setSelectedModelId] = useState<string>(() => {
+        return localStorage.getItem('mn_selected_model') || '';
+    });
+    const [predictionResult, setPredictionResult] = useState<{ property: string, value: number, unit: string } | null>(null);
+    const [isPredicting, setIsPredicting] = useState(false);
+
+    useEffect(() => {
+        localStorage.setItem('mn_models', JSON.stringify(models));
+    }, [models]);
+
+    useEffect(() => {
+        localStorage.setItem('mn_selected_model', selectedModelId);
+    }, [selectedModelId]);
     const [isUartUnlocked, setIsUartUnlocked] = useState(false);
 
     const unlockUart = () => {
@@ -1673,11 +1823,25 @@ export default function App() {
             appRef.current.onCalibUpdate = (status) => {
                 setCalib(status);
             };
+            appRef.current.onPrediction = (res) => {
+                setPredictionResult(res);
+            };
+            appRef.current.onPredictionState = (loading) => {
+                setIsPredicting(loading);
+            };
             appRef.current.initChart();
             appRef.current.setMode('ble');
             appRef.current.renderHistory();
         }
     }, []);
+
+    useEffect(() => {
+        const a = app();
+        if (a) {
+            const modelObj = models.find(m => m.id === selectedModelId);
+            a.currentModel = modelObj ? modelObj.json : null;
+        }
+    }, [selectedModelId, models]);
 
     const app = () => appRef.current;
 
@@ -1755,6 +1919,112 @@ export default function App() {
                                 <div id="devId" style={{ fontSize: '0.55rem', color: 'rgba(14, 165, 233, 0.7)', textAlign: 'center', marginTop: '12px', fontFamily: 'var(--mono)', fontWeight: '700', letterSpacing: '0.05em' }}>—</div>
                             </div>
                         </details>
+                    </div>
+
+                    <div className="product-section" style={{ 
+                        background: 'rgba(14, 25, 45, 0.4)', 
+                        backdropFilter: 'blur(10px)',
+                        border: '1px solid rgba(14, 165, 233, 0.3)',
+                        borderRadius: '12px',
+                        padding: '16px 12px',
+                        position: 'relative',
+                        marginBottom: '20px'
+                    }}>
+                        <div className="sec-label" style={{ color: '#0ea5e9', fontWeight: '800', border: 'none', fontSize: '0.65rem', textTransform: 'uppercase', marginBottom: '12px', padding: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span>PRODUCTO / MODELO</span>
+                            <Database size={12} />
+                        </div>
+                        
+                        <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+                            <select 
+                                value={selectedModelId}
+                                onChange={(e) => setSelectedModelId(e.target.value)}
+                                style={{ 
+                                    flex: 1,
+                                    background: 'rgba(0,0,0,0.3)', 
+                                    color: '#fff', 
+                                    border: '1px solid rgba(14, 165, 233, 0.3)',
+                                    borderRadius: '8px',
+                                    padding: '8px',
+                                    fontSize: '0.7rem',
+                                    outline: 'none'
+                                }}
+                            >
+                                <option value="">Sin Modelo (Solo espectro)</option>
+                                {models.map(m => (
+                                    <option key={m.id} value={m.id}>{m.product} - {m.name}</option>
+                                ))}
+                            </select>
+                            <button 
+                                onClick={() => document.getElementById('modelFileInput')?.click()}
+                                style={{ 
+                                    width: '35px', 
+                                    height: '35px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    background: 'rgba(14, 165, 233, 0.2)',
+                                    border: '1px solid rgba(14, 165, 233, 0.4)',
+                                    borderRadius: '8px',
+                                    color: '#0ea5e9',
+                                    cursor: 'pointer'
+                                }}
+                                title="Cargar nuevo modelo JSON"
+                            >
+                                <Plus size={16} />
+                            </button>
+                            <input 
+                                id="modelFileInput" 
+                                type="file" 
+                                accept=".json" 
+                                style={{ display: 'none' }} 
+                                onChange={(e) => {
+                                    const file = e.target.files?.[0];
+                                    if (file) {
+                                        const reader = new FileReader();
+                                        reader.onload = (event) => {
+                                            try {
+                                                const json = JSON.parse(event.target?.result as string);
+                                                if (!json.modelType || !json.analyticalProperty) {
+                                                    throw new Error("El archivo no parece ser un modelo de predicción compatible.");
+                                                }
+                                                const newModel: PredictionModel = {
+                                                    id: crypto.randomUUID(),
+                                                    name: json.analyticalProperty,
+                                                    product: file.name.replace('.json', '').toUpperCase(),
+                                                    json: json
+                                                };
+                                                setModels(prev => [...prev, newModel]);
+                                                setSelectedModelId(newModel.id);
+                                                appRef.current?.log(`Modelo cargado: ${newModel.product} (${newModel.name})`, 'log-sys');
+                                            } catch (err: any) {
+                                                alert("Error al cargar modelo: " + err.message);
+                                            }
+                                        };
+                                        reader.readAsText(file);
+                                    }
+                                }}
+                            />
+                        </div>
+
+                        {selectedModelId && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <div style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.4)', fontFamily: 'var(--mono)' }}>
+                                    {models.find(m => m.id === selectedModelId)?.json.modelType} | {models.find(m => m.id === selectedModelId)?.json.nComponents} LVs
+                                </div>
+                                <button 
+                                    onClick={() => {
+                                        if (confirm("¿Eliminar este modelo?")) {
+                                            setModels(prev => prev.filter(m => m.id !== selectedModelId));
+                                            setSelectedModelId('');
+                                        }
+                                    }}
+                                    style={{ background: 'transparent', border: 'none', color: 'rgba(239, 68, 68, 0.6)', cursor: 'pointer' }}
+                                >
+                                    <Trash2 size={12} />
+                                </button>
+                            </div>
+                        )}
                     </div>
 
                     <div className="uuid-box" id="uuidBox" style={{ 
@@ -2052,7 +2322,12 @@ export default function App() {
                             <span style={{ fontSize: '0.85rem', fontWeight: '800' }}>BLANCO REFE.</span>
                         </button>
                         
-                        <button id="btnAbs" className="btn" onClick={() => app()?.scanSample()} style={{ 
+                        <button id="btnAbs" className="btn" 
+                            onClick={() => {
+                                setPredictionResult(null);
+                                app()?.scanSample();
+                            }} 
+                            style={{ 
                             flex: 1.5, 
                             background: (calib.dark && calib.white) 
                                 ? 'linear-gradient(135deg, #38bdf8 0%, #0284c7 100%)' 
@@ -2079,17 +2354,117 @@ export default function App() {
 
 
 
-                    <div className="chart-panel">
-                        <div className="chart-hdr">
-                            <span className="chart-title">ESPECTRO NIR — 128 PÍXELES InGaAs · 16-BIT BIG ENDIAN</span>
-                            <div className="chart-btns">
-                                <button className="chip-btn" onClick={() => app()?.toggleAbsorbance()}>Adc / Absorbancia</button>
-                                <button className="chip-btn" onClick={() => app()?.clearChart()}>Limpiar</button>
-                                <button className="chip-btn" onClick={() => app()?.exportCSV()}>CSV</button>
+                    <div className="dashboard-main" style={{ display: 'flex', gap: '20px', minHeight: '500px', marginBottom: '20px' }}>
+                        {/* LADO IZQUIERDO: ESPECTRO */}
+                        <div className="chart-panel" style={{ flex: 7, marginBottom: 0 }}>
+                            <div className="chart-hdr">
+                                <span className="chart-title">ESPECTRO NIR — 128 PÍXELES InGaAs</span>
+                                <div className="chart-btns">
+                                    <button className="chip-btn" onClick={() => app()?.toggleAbsorbance()}>Adc / Absorbancia</button>
+                                    <button className="chip-btn" onClick={() => app()?.clearChart()}>Limpiar</button>
+                                    <button className="chip-btn" onClick={() => app()?.exportCSV()} style={{ background: 'rgba(34, 197, 94, 0.2)', border: '1px solid rgba(34,197,94,0.4)', color: '#4ade80' }}>Exportar CSV</button>
+                                </div>
+                            </div>
+                            <div className="chart-canvas-wrap">
+                                <canvas id="nirChart"></canvas>
                             </div>
                         </div>
-                        <div className="chart-canvas-wrap">
-                            <canvas id="nirChart"></canvas>
+
+                        {/* LADO DERECHO: DASHBOARD DE RESULTADOS */}
+                        <div className="results-panel" style={{ 
+                            flex: 3, 
+                            background: 'rgba(15, 23, 42, 0.4)', 
+                            border: '1px solid rgba(14, 165, 233, 0.3)', 
+                            borderRadius: '16px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            padding: '20px',
+                            boxShadow: '0 4px 30px rgba(0,0,0,0.4)',
+                            backdropFilter: 'blur(10px)'
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px', paddingBottom: '12px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                                <Zap size={18} style={{ color: '#0ea5e9' }} />
+                                <span style={{ fontWeight: '800', fontSize: '0.7rem', color: '#fff', letterSpacing: '0.05em' }}>PANTALLA DE RESULTADOS</span>
+                            </div>
+
+                            {!selectedModelId ? (
+                                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
+                                    <Database size={48} style={{ color: 'rgba(14, 165, 233, 0.1)', marginBottom: '15px' }} />
+                                    <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: '0.75rem', lineHeight: '1.4' }}>
+                                        No hay un modelo activo.<br/>
+                                        Cargue un JSON en la barra lateral para habilitar predicciones.
+                                    </p>
+                                </div>
+                            ) : (
+                                <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                                    {/* Cabecera del modelo */}
+                                    <div style={{ background: 'rgba(0,0,0,0.2)', padding: '15px', borderRadius: '12px', marginBottom: '20px' }}>
+                                        <div style={{ fontSize: '0.6rem', color: '#38bdf8', fontWeight: '800', marginBottom: '4px' }}>PRODUCTO</div>
+                                        <div style={{ fontSize: '1.1rem', fontWeight: '900', color: '#fff' }}>{models.find(m => m.id === selectedModelId)?.product}</div>
+                                    </div>
+
+                                    {/* Área de valor principal */}
+                                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
+                                        {isPredicting ? (
+                                            <div style={{ textAlign: 'center' }}>
+                                                <div className="processing-loader" style={{ 
+                                                    width: '60px', 
+                                                    height: '60px', 
+                                                    border: '3px solid rgba(14, 165, 233, 0.1)', 
+                                                    borderTopColor: '#0ea5e9',
+                                                    borderRadius: '50%',
+                                                    animation: 'spin 1s linear infinite',
+                                                    margin: '0 auto 15px'
+                                                }}></div>
+                                                <div style={{ fontSize: '0.65rem', color: '#0ea5e9', fontWeight: '700', letterSpacing: '0.1em' }}>ANALIZANDO...</div>
+                                                <div style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.4)', marginTop: '4px' }}>Procesando Quimiometría PLS</div>
+                                            </div>
+                                        ) : predictionResult ? (
+                                            <div style={{ width: '100%', textAlign: 'center' }}>
+                                                <div style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)', marginBottom: '10px' }}>{predictionResult.property.toUpperCase()}</div>
+                                                <div style={{ 
+                                                    fontSize: '4.5rem', 
+                                                    fontWeight: '950', 
+                                                    color: '#fff', 
+                                                    lineHeight: '1',
+                                                    textShadow: '0 0 30px rgba(14, 165, 233, 0.4)'
+                                                }}>
+                                                    {predictionResult.value.toFixed(2)}
+                                                </div>
+                                                <div style={{ fontSize: '1.2rem', color: '#38bdf8', fontWeight: '800', marginTop: '5px' }}>{predictionResult.unit}</div>
+                                            </div>
+                                        ) : (
+                                            <div style={{ textAlign: 'center' }}>
+                                                <div style={{ 
+                                                    width: '80px', 
+                                                    height: '80px', 
+                                                    border: '2px dashed rgba(56, 189, 248, 0.2)', 
+                                                    borderRadius: '50%',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    margin: '0 auto 20px'
+                                                }}>
+                                                    <span className="scan-anim" style={{ width: '40px', height: '2px', background: '#38bdf8', borderRadius: '2px', animation: 'scanLine 2s infinite' }}></span>
+                                                </div>
+                                                <span style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)', fontWeight: '600' }}>ESPERANDO ESCANEO...</span>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Info técnica pie */}
+                                    <div style={{ marginTop: 'auto', background: 'rgba(255,255,255,0.03)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                                            <span style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.3)' }}>ALGORITMO</span>
+                                            <span style={{ fontSize: '0.6rem', color: '#fff', fontWeight: '700' }}>PLS REGRESSION</span>
+                                        </div>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                            <span style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.3)' }}>FECHA MODELO</span>
+                                            <span style={{ fontSize: '0.6rem', color: '#fff', fontWeight: '700' }}>{new Date(models.find(m => m.id === selectedModelId)?.json.date).toLocaleDateString()}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </div>
                 </main>
