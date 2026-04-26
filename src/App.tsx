@@ -365,8 +365,8 @@ class MicroNIRApp {
         this.setSig('LINK', true);
         this.log('MCU listo y en modo Standby.', 'log-warn');
         
-        // 5. Configuración Inicial de Integración (10.5 ms)
-        await this.setIntegrationTime(10.5);
+        // 5. Configuración Inicial de Integración (12.5 ms)
+        await this.setIntegrationTime(12.5);
         
         // 6. Configuración de Réplicas de Hardware (50)
         await this.setHardwareReplicas(50);
@@ -802,6 +802,10 @@ class MicroNIRApp {
         // Comando 0x0A (SET INTEGRATION) + 4 bytes valor + 4 bytes passkey
         const cmd = this.createGenericSetUintCommandWithPasskey(this.CMD.INTEGRATION_TIME, hwValue);
         await this.sendCmdData(cmd, 'set_exp');
+
+        // Actualizar UI inmediatamente
+        const elExp = document.getElementById('valExp');
+        if (elExp) elExp.textContent = ms.toFixed(1);
     }
 
     async setHardwareReplicas(reps: number) {
@@ -1289,7 +1293,7 @@ class MicroNIRApp {
         if (withLamp) {
             this.log('Encendiendo lámpara para estabilidad...', 'log-sys');
             await this.sendCmdData([0x21, 0x01, 0x00], 'lamp_on_pre');
-            await this.sleep(500); 
+            await this.sleep(3000); 
         }
 
         const presetId = withLamp ? 0x01 : 0x00;
@@ -1503,7 +1507,7 @@ class MicroNIRApp {
         if (withLamp) {
             this.log('Encendiendo lámpara para punto...', 'log-sys');
             await this.sendCmdData([0x21, 0x01, 0x00], 'lamp_on_auto');
-            await this.sleep(500); 
+            await this.sleep(3000); 
         }
 
         const presetId = withLamp ? 0x01 : 0x00;
