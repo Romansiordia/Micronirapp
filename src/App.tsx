@@ -6,6 +6,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Chart, registerables } from 'chart.js';
 import { Cpu, Clock, Thermometer, Battery, Activity, Moon, Sun, Zap, Lock, Unlock, PowerOff, Database, FileJson, ChevronDown, Plus, Trash2 } from 'lucide-react';
+import { PredictionModel, PredictionResult, ModelJSON } from './types';
+import { predict } from './services/chemometrics';
 
 Chart.register(...registerables);
 
@@ -71,9 +73,9 @@ class MicroNIRApp {
     VAL: { ON: number; OFF: number };
     history: { id: string, name: string, lot?: string, data: number[], time: number }[];
     sampleData: { id: string; name: string; lot: string };
-    onPrediction?: (res: { property: string, value: number, unit: string } | null) => void;
+    onPrediction?: (res: PredictionResult | null) => void;
     onPredictionState?: (loading: boolean) => void;
-    currentModel: any | null = null;
+    currentModel: ModelJSON | null = null;
 
     constructor() {
         this.STX = 0x02;
@@ -171,9 +173,9 @@ class MicroNIRApp {
         this.lampConfirmed = false;
         this.ignoreRxUntil = 0;
         this.history = JSON.parse(localStorage.getItem('mn_history') || '[]');
-    }
+  }
 
-    initChart() {
+  initChart() {
         const ctx = (document.getElementById('nirChart') as HTMLCanvasElement).getContext('2d');
         if (!ctx) return;
         const labels = Array.from({length: 125}, (_, i) =>
@@ -1666,6 +1668,7 @@ class MicroNIRApp {
     performPrediction(absorbance: number[]) {
         try {
             const m = this.currentModel;
+            if (!m) return;
             if (this.onPredictionState) this.onPredictionState(true);
             
             this.log(`Iniciando motor de predicción para ${m.analyticalProperty}...`, 'log-sys');
@@ -1673,46 +1676,10 @@ class MicroNIRApp {
             // Simular tiempo de procesamiento (2.5 segundos) para "sentir" el cálculo
             setTimeout(() => {
                 try {
-                    let processed = [...absorbance];
+                    const result = predict(absorbance, m, (msg, type) => this.log(msg, type));
 
-                    // 1. Aplicar Pre-procesamiento en Cascada (Lógica Spectra Pro)
-                    if (m.preprocessing && Array.isArray(m.preprocessing)) {
-                        for (const step of m.preprocessing) {
-                            const method = (step.method || '').toLowerCase();
-                            this.log(`Procesando: ${method.toUpperCase()}...`, 'log-default');
-                            
-                            if (method === 'snv') {
-                                processed = this.applySNV(processed);
-                            } else if (method === 'msc') {
-                                const ref = m.metrics?.referenceSpectrum || m.referenceSpectrum;
-                                processed = this.applyMSC(processed, ref);
-                            } else if (method.includes('savgol')) {
-                                const deriv = method.includes('1') ? 1 : (method.includes('2') ? 2 : 0);
-                                processed = this.applySavGol(processed, step.params?.windowSize || 11, step.params?.polynomialOrder || 2, deriv);
-                            }
-                        }
-                    }
-
-                    // 2. Aplicar Ecuación de Regresión PLS
-                    const intercept = m.metrics?.plsIntercept ?? m.plsIntercept ?? 0;
-                    const coeffs = m.metrics?.coefficients || m.coefficients;
+                    this.log(`Predicción final [${m.analyticalProperty}]: ${result.value.toFixed(4)}`, 'log-warn');
                     
-                    if (!coeffs) throw new Error("Faltan coeficientes de regresión");
-
-                    let prediction = intercept;
-                    const len = Math.min(processed.length, coeffs.length);
-                    for (let i = 0; i < len; i++) {
-                        prediction += processed[i] * coeffs[i];
-                    }
-
-                    this.log(`Predicción final [${m.analyticalProperty}]: ${prediction.toFixed(4)}`, 'log-warn');
-                    
-                    const result = {
-                        property: m.analyticalProperty,
-                        value: prediction,
-                        unit: m.unit || '%'
-                    };
-
                     if (this.onPrediction) this.onPrediction(result);
                     if (this.onPredictionState) this.onPredictionState(false);
                 } catch (e: any) {
@@ -1727,63 +1694,7 @@ class MicroNIRApp {
         }
     }
 
-    applySNV(x: number[]) {
-        const mean = x.reduce((a, b) => a + b, 0) / x.length;
-        const std = Math.sqrt(x.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / (x.length - 1));
-        return x.map(v => (v - mean) / std);
-    }
-
-    applyMSC(x: number[], ref: number[]) {
-        if (!ref || ref.length !== x.length) return x;
-        // Regresión lineal x = a*ref + b
-        const n = x.length;
-        let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
-        for (let i = 0; i < n; i++) {
-            sumX += ref[i];
-            sumY += x[i];
-            sumXY += ref[i] * x[i];
-            sumXX += ref[i] * ref[i];
-        }
-        const a = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
-        const b = (sumY - a * sumX) / n;
-        // x_msc = (x - b) / a
-        return x.map(v => (v - b) / (a || 1));
-    }
-
-    applySavGol(x: number[], window: number, poly: number, deriv: number) {
-        // Implementación simplificada de Savitzky-Golay (1ra derivada)
-        // Para window 11, poly 2, deriv 1
-        if (window !== 11) return x; // Fallback si el modelo usa otra ventana (por ahora)
-        
-        // Coeficientes pre-calculados para Window=11, Poly=2, Deriv=1 (Escalados por 1/110)
-        // [5, 4, 3, 2, 1, 0, -1, -2, -3, -4, -5] * (1 / sum(i^2))
-        const coeffs = [5, 4, 3, 2, 1, 0, -1, -2, -3, -4, -5];
-        const norm = 110; 
-        
-        const out = new Array(x.length).fill(0);
-        const half = 5;
-        for (let i = half; i < x.length - half; i++) {
-            let sum = 0;
-            for (let j = -half; j <= half; j++) {
-                sum += x[i + j] * coeffs[j + half];
-            }
-            out[i] = sum / norm;
-        }
-        // Rellenar bordes
-        for (let i = 0; i < half; i++) out[i] = out[half];
-        for (let i = x.length - half; i < x.length; i++) out[i] = out[x.length - half - 1];
-        
-        return out;
-    }
-
     sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
-}
-
-export interface PredictionModel {
-    id: string;
-    name: string;
-    product: string;
-    json: any;
 }
 
 export default function App() {
@@ -1796,7 +1707,7 @@ export default function App() {
     const [selectedModelId, setSelectedModelId] = useState<string>(() => {
         return localStorage.getItem('mn_selected_model') || '';
     });
-    const [predictionResult, setPredictionResult] = useState<{ property: string, value: number, unit: string } | null>(null);
+    const [predictionResult, setPredictionResult] = useState<PredictionResult | null>(null);
     const [isPredicting, setIsPredicting] = useState(false);
 
     useEffect(() => {
