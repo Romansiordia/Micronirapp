@@ -219,7 +219,7 @@ class MicroNIRApp {
                     y: {
                         grid: { color: 'rgba(255,255,255,0.05)' },
                         ticks: { color: '#94a3b8', font: { family: 'Share Tech Mono', size: 10 } },
-                        title: { display: true, text: 'ADC (16-bit BE)', color: '#94a3b8', font: { size: 10, family: 'Share Tech Mono' } }
+                        title: { display: true, text: 'Intensidad (Counts)', color: '#94a3b8', font: { size: 10, family: 'Share Tech Mono' } }
                     },
                     x: {
                         grid: { color: 'rgba(255,255,255,0.05)' },
@@ -237,7 +237,7 @@ class MicroNIRApp {
                         bodyFont:  { family: 'Share Tech Mono' },
                         callbacks: {
                             title: (items: any) => `${items[0].label} nm`,
-                            label: (item: any)  => ` ADC: ${item.raw}`
+                            label: (item: any)  => ` Intensidad: ${item.raw}`
                         }
                     }
                 }
@@ -1264,6 +1264,18 @@ class MicroNIRApp {
             this.chart.options.scales.y.suggestedMax = 65535;
         }
 
+        // --- ACTUALIZAR ETIQUETAS SEGÚN MODO ---
+        const yTitle = this.showAbsorbance ? "Absorbancia (AU)" : "Intensidad (Counts)";
+        if (this.chart.options.scales.y.title) {
+            this.chart.options.scales.y.title.text = yTitle;
+        }
+        
+        // También actualizamos el tooltip
+        if (this.chart.options.plugins.tooltip) {
+            const modeLabel = this.showAbsorbance ? "Abs:" : "ADC:";
+            this.chart.options.plugins.tooltip.callbacks.label = (item: any) => ` ${modeLabel} ${item.raw}`;
+        }
+
         this.chart.update('none');
     }
 
@@ -1721,6 +1733,7 @@ export default function App() {
     useEffect(() => {
         localStorage.setItem('mn_selected_model', selectedModelId);
     }, [selectedModelId]);
+    const [isSidebarOpen, setIsSidebarOpen] = useState(true);
     const [isUartUnlocked, setIsUartUnlocked] = useState(false);
 
     const unlockUart = () => {
@@ -1792,8 +1805,17 @@ export default function App() {
                 </div>
             </header>
 
-            <div className="main">
-                <aside className="sidebar">
+            <div className={`main transition-all duration-300 relative ${isSidebarOpen ? 'sidebar-open' : 'sidebar-closed'}`} style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+                <aside className={`sidebar transition-all duration-300 overflow-y-auto ${isSidebarOpen ? 'w-80 translate-x-0' : 'w-0 -translate-x-full'}`} style={{ 
+                    position: 'relative', 
+                    zIndex: 20, 
+                    background: 'rgba(15, 23, 42, 0.95)', 
+                    backdropFilter: 'blur(20px)',
+                    borderRight: isSidebarOpen ? '1px solid rgba(14, 165, 233, 0.2)' : 'none',
+                    height: '100%',
+                    flexShrink: 0
+                }}>
+                    <div style={{ width: '320px', padding: '20px', display: isSidebarOpen ? 'block' : 'none' }}>
                     <div style={{ 
                         border: '1px solid rgba(14, 165, 233, 0.3)', 
                         borderRadius: '12px', 
@@ -2077,9 +2099,51 @@ export default function App() {
                             </div>
                         </details>
                     </div>
-                </aside>
+                </div>
+            </aside>
 
-                <main className="content">
+                {/* Sidebar Toggle Button (Tab) */}
+                <button 
+                    onClick={() => {
+                        setIsSidebarOpen(!isSidebarOpen);
+                        setTimeout(() => app()?.chart?.resize(), 310);
+                    }}
+                    style={{
+                        position: 'absolute',
+                        left: isSidebarOpen ? '320px' : '0px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        zIndex: 30,
+                        width: '24px',
+                        height: '60px',
+                        background: 'rgba(14, 25, 45, 0.9)',
+                        border: '1px solid rgba(14, 165, 233, 0.3)',
+                        borderLeft: 'none',
+                        borderRadius: '0 8px 8px 0',
+                        color: '#0ea5e9',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        transition: 'left 0.3s ease, background 0.2s',
+                        backdropFilter: 'blur(10px)',
+                        boxShadow: '4px 0 10px rgba(0,0,0,0.3)'
+                    }}
+                    className="hover:bg-cyan-500/10"
+                >
+                    <div style={{ transform: isSidebarOpen ? 'rotate(0deg)' : 'rotate(180deg)', transition: 'transform 0.3s' }}>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="15 18 9 12 15 6"></polyline>
+                        </svg>
+                    </div>
+                </button>
+
+                <main className="content transition-all duration-300" style={{ 
+                    flex: 1, 
+                    overflowY: 'auto', 
+                    padding: '24px',
+                    marginLeft: 0
+                }}>
                     <div className="metrics-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
                         {/* CARD 1: CANAL DE DATOS */}
                         <div className="metric-card" style={{ background: 'rgba(14, 25, 45, 0.4)', backdropFilter: 'blur(10px)', border: '1px solid rgba(14, 165, 233, 0.3)', borderRadius: '12px', padding: '1.25rem', boxShadow: '0 4px 15px rgba(0,0,0,0.2)', position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
