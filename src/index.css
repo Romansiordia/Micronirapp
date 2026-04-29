@@ -5,6 +5,20 @@
     to { transform: rotate(360deg); }
 }
 
+@keyframes shimmer {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+}
+
+@keyframes pulse-live {
+    0%, 100% { box-shadow: 0 0 5px rgba(34, 197, 94, 0.4); }
+    50% { box-shadow: 0 0 15px rgba(34, 197, 94, 0.8), 0 0 25px rgba(34, 197, 94, 0.4); }
+}
+
+.pulse-live {
+    animation: pulse-live 2s infinite ease-in-out;
+}
+
 @keyframes pulse {
     0%, 100% { opacity: 1; transform: scale(1); }
     50% { opacity: 0.85; transform: scale(1.02); }

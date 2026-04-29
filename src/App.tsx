@@ -218,8 +218,8 @@ class MicroNIRApp {
                 scales: {
                     y: {
                         grid: { color: 'rgba(255,255,255,0.05)' },
-                        ticks: { color: '#94a3b8', font: { family: 'Share Tech Mono', size: 10 } },
-                        title: { display: true, text: 'Intensidad (Counts)', color: '#94a3b8', font: { size: 10, family: 'Share Tech Mono' } }
+                        ticks: { color: '#f1f5f9', font: { family: 'Share Tech Mono', size: 10, weight: 'bold' } },
+                        title: { display: true, text: 'Intensidad (Counts)', color: '#0ea5e9', font: { size: 11, family: 'Share Tech Mono', weight: 'bold' } }
                     },
                     x: {
                         grid: { color: 'rgba(255,255,255,0.05)' },
@@ -524,7 +524,7 @@ class MicroNIRApp {
             const devId = document.getElementById('devId');
             if (devId) devId.textContent = this.bleDevice.name || 'MicroNIR';
             this.setLed('MCU', true, 'on-blue');
-            this.setStatus('CONECTADO (VIAVI)', 'connected');
+            this.setStatus('CONECTADO (VIAVI)', 'connected pulse-live');
             this.updateUI(true);
 
             // Handshake inicial del APK
@@ -581,7 +581,7 @@ class MicroNIRApp {
             const devId = document.getElementById('devId');
             if (devId) devId.textContent = `FTDI VID:${vid}`;
             this.setLed('MCU', true, 'on-blue');
-            this.setStatus('CONECTADO USB', 'connected');
+            this.setStatus('CONECTADO USB', 'connected pulse-live');
             this.updateUI(true);
             
             this.startHeartbeat();
@@ -1132,11 +1132,28 @@ class MicroNIRApp {
         } else if (cmd === 0x42 || cmd === this.CMD.BATTERY) {
             const pct = (payload.length > 1) ? payload[1] : (payload[0] || 0); 
             const valBat = document.getElementById('valBat');
+            const labelBat = document.getElementById('labelBat');
             if (valBat) {
-                valBat.textContent = pct + '%';
-                if (pct < 20) valBat.className = "m-val red";
-                else if (pct < 50) valBat.className = "m-val orange";
-                else valBat.className = "m-val green";
+                valBat.textContent = pct + '';
+                if (pct < 15) {
+                    valBat.style.color = '#ef4444';
+                    if (labelBat) {
+                        labelBat.textContent = 'BAT. BAJA';
+                        labelBat.style.color = '#ef4444';
+                    }
+                } else if (pct < 40) {
+                    valBat.style.color = '#f97316';
+                    if (labelBat) {
+                        labelBat.textContent = 'MEDIO';
+                        labelBat.style.color = '#f97316';
+                    }
+                } else {
+                    valBat.style.color = '#4ade80';
+                    if (labelBat) {
+                        labelBat.textContent = 'OK';
+                        labelBat.style.color = '#4ade80';
+                    }
+                }
             }
             this.log(`Nivel Batería (Cmd 0x42): ${pct}% | Payload: ${Array.from(payload).map(b => b.toString(16).padStart(2,'0')).join(' ')}`, 'log-warn');
         } else if (cmd === 0x54 || cmd === this.CMD.TEMP) {
@@ -1590,7 +1607,7 @@ class MicroNIRApp {
             lotInfo,
             ...dataRow,
             "M1-0000343", 
-            "SpectraNir User",
+            "Spectra-Nir User",
             temp,
             exp,
             "4" // Basado en el promediado multi-punto
@@ -1601,7 +1618,7 @@ class MicroNIRApp {
         const link = document.createElement("a");
         const url = URL.createObjectURL(blob);
         link.setAttribute("href", url);
-        link.setAttribute("download", `SpectraNir_${sampleName}.csv`);
+        link.setAttribute("download", `Spectra-Nir_${sampleName}.csv`);
         link.style.visibility = 'hidden';
         document.body.appendChild(link);
         link.click();
@@ -1783,7 +1800,7 @@ export default function App() {
                         </svg>
                     </div>
                     <div>
-                        <div className="logo-text">Spectra<em>Nir</em></div>
+                        <div className="logo-text">Spectra-<em>Nir</em></div>
                         <div className="logo-sub">HARDWARE ORCHESTRATOR v6.0 · FTDI PROTOCOL</div>
                     </div>
                 </div>
@@ -2201,7 +2218,8 @@ export default function App() {
                             </div>
                             <div style={{ position: 'relative', zIndex: 1, marginTop: '8px' }}>
                                 <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
-                                    <span id="valBat" style={{ fontSize: '1.5rem', fontWeight: '800', color: '#ffffff', fontFamily: 'var(--mono)', textShadow: '0 2px 10px rgba(0,0,0,0.5)' }}>—</span>
+                                    <span id="valBat" style={{ fontSize: '1.5rem', fontWeight: '800', fontFamily: 'var(--mono)', textShadow: '0 2px 10px rgba(0,0,0,0.5)' }}>—</span>
+                                    <span id="labelBat" style={{ fontSize: '0.6rem', fontWeight: '800', marginLeft: '4px' }}></span>
                                     <span style={{ fontSize: '0.7rem', color: '#0ea5e9', fontWeight: '700' }}>%</span>
                                 </div>
                             </div>
@@ -2309,7 +2327,7 @@ export default function App() {
                             style={{ 
                             flex: 1.5, 
                             background: (calib.dark && calib.white) 
-                                ? 'linear-gradient(135deg, #38bdf8 0%, #0284c7 100%)' 
+                                ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)' 
                                 : '#1e293b', 
                             color: (calib.dark && calib.white) ? '#fff' : '#475569', 
                             border: 'none', 
@@ -2320,14 +2338,23 @@ export default function App() {
                             justifyContent: 'center',
                             padding: '12px',
                             height: 'auto',
-                            boxShadow: (calib.dark && calib.white) ? '0 10px 15px -3px rgba(14,165,233,0.3)' : 'none',
+                            boxShadow: (calib.dark && calib.white) ? '0 10px 20px -3px rgba(16,185,129,0.4)' : 'none',
                             transition: 'all 0.2s',
                             cursor: (calib.dark && calib.white) ? 'pointer' : 'not-allowed',
-                            opacity: (calib.dark && calib.white) ? 1 : 0.7
+                            opacity: (calib.dark && calib.white) ? 1 : 0.7,
+                            position: 'relative',
+                            overflow: 'hidden'
                         }}>
-                            <Zap size={20} style={{ marginBottom: '6px' }} />
-                            <span style={{ fontSize: '0.6rem', opacity: 0.8, marginBottom: '2px' }}>PASO 03</span>
-                            <span style={{ fontSize: '1rem', fontWeight: '900' }}>ANALIZAR MUESTRA</span>
+                            <div style={{
+                                position: 'absolute',
+                                top: 0, left: 0, width: '100%', height: '100%',
+                                background: 'linear-gradient(45deg, transparent, rgba(255,255,255,0.1), transparent)',
+                                transform: 'translateX(-100%)',
+                                animation: (calib.dark && calib.white) ? 'shimmer 3s infinite' : 'none'
+                            }}></div>
+                            <Zap size={20} style={{ marginBottom: '6px', filter: 'drop-shadow(0 0 5px rgba(255,255,255,0.5))' }} />
+                            <span style={{ fontSize: '0.6rem', opacity: 0.8, marginBottom: '2px', fontWeight: '800' }}>PASO 03</span>
+                            <span style={{ fontSize: '1rem', fontWeight: '900', letterSpacing: '0.02em' }}>ANALIZAR MUESTRA</span>
                         </button>
                     </div>
 
@@ -2341,7 +2368,12 @@ export default function App() {
                                 <div className="chart-btns">
                                     <button className="chip-btn" onClick={() => app()?.toggleAbsorbance()}>Adc / Absorbancia</button>
                                     <button className="chip-btn" onClick={() => app()?.clearChart()}>Limpiar</button>
-                                    <button className="chip-btn" onClick={() => app()?.exportCSV()} style={{ background: 'rgba(34, 197, 94, 0.2)', border: '1px solid rgba(34,197,94,0.4)', color: '#4ade80' }}>Exportar CSV</button>
+                                    <button className="chip-btn" onClick={() => app()?.exportCSV()} style={{ 
+                                        background: 'transparent', 
+                                        border: '1px solid rgba(34,197,94,0.6)', 
+                                        color: '#4ade80',
+                                        transition: 'all 0.2s'
+                                    }} className="hover:bg-green-500/10">Exportar CSV</button>
                                 </div>
                             </div>
                             <div className="chart-canvas-wrap">
@@ -2406,7 +2438,8 @@ export default function App() {
                                                     fontWeight: '950', 
                                                     color: '#fff', 
                                                     lineHeight: '1',
-                                                    textShadow: '0 0 30px rgba(14, 165, 233, 0.4)'
+                                                    textShadow: '0 0 30px rgba(14, 165, 233, 0.6), 0 0 60px rgba(14, 165, 233, 0.2)',
+                                                    filter: 'drop-shadow(0 0 10px rgba(255,255,255,0.2))'
                                                 }}>
                                                     {predictionResult.value.toFixed(2)}
                                                 </div>
