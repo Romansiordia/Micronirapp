@@ -13,6 +13,7 @@ export enum PreprocessingMethod {
 export interface PreprocessingParams {
   windowSize?: number;
   polynomialOrder?: number;
+  derivative?: number;
 }
 
 export interface PreprocessingStep {
@@ -51,4 +52,50 @@ export interface PredictionResult {
   property: string;
   value: number;
   unit: string;
+  gh?: number;
+}
+
+export interface Sample {
+  id: string | number;
+  values: number[];
+  color?: string;
+  active?: boolean;
+  analyticalValue: number;
+}
+
+export interface OptimizationResult {
+  components: number;
+  sec: number;
+  secv: number;
+}
+
+export interface ModelResults {
+  modelType: string;
+  nComponents: number;
+  model: any;
+  mahalanobis: {
+    distances: any[];
+    outlierIds: (string | number)[];
+  };
+}
+
+export interface IngredientLibrary {
+  id: string;
+  name: string;
+  samples: { id: string | number; values: number[] }[];
+  averageSpectrum: number[];
+  stdDevSpectrum: number[];
+  threshold: number;
+}
+
+export interface ClassificationResult {
+  ingredientId: string;
+  ingredientName: string;
+  confidence: number;
+  distance: number;
+  isConforming: boolean;
+  details: {
+    meanDistance: number;
+    threshold: number;
+  };
 }

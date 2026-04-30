@@ -1240,7 +1240,18 @@ class MicroNIRApp {
                 <div class="h-info">
                     <div class="h-name">${h.name} <span style="font-size:0.55rem; color:var(--dim)">[${h.id}]</span></div>
                     ${h.lot ? `<div class="h-lot" style="font-size:0.6rem; color:var(--orange)">Lote: ${h.lot}</div>` : ''}
-                    <div class="h-date">${new Date(h.time).toLocaleTimeString()}</div>
+                    ${h.prediction !== undefined ? `
+                        <div class="h-res" style="margin-top:4px; padding:2px 6px; background:rgba(14,165,233,0.1); border-radius:4px; display:inline-block">
+                            <span style="font-size:0.75rem; font-weight:900; color:#fff">${h.prediction.toFixed(2)}${h.unit || ''}</span>
+                            <span style="font-size:0.55rem; color:rgba(255,255,255,0.4); margin-left:4px">${h.propName || ''}</span>
+                            ${h.gh !== undefined ? `
+                                <span style="font-size:0.6rem; margin-left:8px; font-weight:800; color:${h.gh > 3 ? '#fb923c' : '#4ade80'}">
+                                    GH: ${h.gh.toFixed(2)}
+                                </span>
+                            ` : ''}
+                        </div>
+                    ` : ''}
+                    <div class="h-date" style="margin-top:2px">${new Date(h.time).toLocaleTimeString()}</div>
                 </div>
                 <div class="h-btns" style="display:flex; gap:4px">
                     <button class="h-btn-view" style="background:transparent; border:none; cursor:pointer;" title="Ver">👁️</button>
@@ -1713,6 +1724,17 @@ class MicroNIRApp {
 
                     this.log(`Predicción final [${m.analyticalProperty}]: ${result.value.toFixed(4)}`, 'log-warn');
                     
+                    // Actualizar el registro en el historial con el resultado de la predicción
+                    if (this.history.length > 0 && this.scanTarget === 'sample') {
+                        // El último escaneo de muestra está al inicio (index 0)
+                        this.history[0].prediction = result.value;
+                        this.history[0].gh = result.gh;
+                        this.history[0].unit = result.unit;
+                        this.history[0].propName = result.property;
+                        localStorage.setItem('mn_history', JSON.stringify(this.history));
+                        this.renderHistory();
+                    }
+
                     if (this.onPrediction) this.onPrediction(result);
                     if (this.onPredictionState) this.onPredictionState(false);
                 } catch (e: any) {
@@ -2368,12 +2390,12 @@ export default function App() {
                                 <div className="chart-btns">
                                     <button className="chip-btn" onClick={() => app()?.toggleAbsorbance()}>Adc / Absorbancia</button>
                                     <button className="chip-btn" onClick={() => app()?.clearChart()}>Limpiar</button>
-                                    <button className="chip-btn" onClick={() => app()?.exportCSV()} style={{ 
+                                    <button className="chip-btn hover:bg-green-500/10" onClick={() => app()?.exportCSV()} style={{ 
                                         background: 'transparent', 
                                         border: '1px solid rgba(34,197,94,0.6)', 
                                         color: '#4ade80',
                                         transition: 'all 0.2s'
-                                    }} className="hover:bg-green-500/10">Exportar CSV</button>
+                                    }}>Exportar CSV</button>
                                 </div>
                             </div>
                             <div className="chart-canvas-wrap">
@@ -2444,6 +2466,29 @@ export default function App() {
                                                     {predictionResult.value.toFixed(2)}
                                                 </div>
                                                 <div style={{ fontSize: '1.2rem', color: '#38bdf8', fontWeight: '800', marginTop: '5px' }}>{predictionResult.unit}</div>
+                                                
+                                                {/* Indicador de GH (Distancia Mahalanobis) */}
+                                                {predictionResult.gh !== undefined && (
+                                                    <div style={{ 
+                                                        marginTop: '15px', 
+                                                        padding: '4px 10px', 
+                                                        background: predictionResult.gh > 3 ? 'rgba(249, 115, 22, 0.1)' : 'rgba(16, 185, 129, 0.1)', 
+                                                        borderRadius: '20px',
+                                                        display: 'inline-flex',
+                                                        alignItems: 'center',
+                                                        gap: '6px',
+                                                        border: `1px solid ${predictionResult.gh > 3 ? 'rgba(249, 115, 22, 0.3)' : 'rgba(16, 185, 129, 0.3)'}`
+                                                    }}>
+                                                        <span style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.5)', fontWeight: '700' }}>DISTANCIA GH:</span>
+                                                        <span style={{ 
+                                                            fontSize: '0.75rem', 
+                                                            fontWeight: '900', 
+                                                            color: predictionResult.gh > 3 ? '#fb923c' : '#4ade80' 
+                                                        }}>
+                                                            {predictionResult.gh.toFixed(2)}
+                                                        </span>
+                                                    </div>
+                                                )}
                                             </div>
                                         ) : (
                                             <div style={{ textAlign: 'center' }}>
@@ -2469,6 +2514,16 @@ export default function App() {
                                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
                                             <span style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.3)' }}>ALGORITMO</span>
                                             <span style={{ fontSize: '0.6rem', color: '#fff', fontWeight: '700' }}>PLS REGRESSION</span>
+                                        </div>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                                            <span style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.3)' }}>ESTADO MUESTRA</span>
+                                            <span style={{ 
+                                                fontSize: '0.6rem', 
+                                                color: (predictionResult?.gh && predictionResult.gh > 3) ? '#fb923c' : '#4ade80', 
+                                                fontWeight: '800' 
+                                            }}>
+                                                {(predictionResult?.gh && predictionResult.gh > 3) ? 'FUERA DE RANGO / OUTLIER' : 'DENTRO DE RANGO'}
+                                            </span>
                                         </div>
                                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                                             <span style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.3)' }}>FECHA MODELO</span>
