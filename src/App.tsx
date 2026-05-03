@@ -1612,12 +1612,15 @@ class MicroNIRApp {
             return S.toFixed(0); // Si no hay referencias, exportar ADC
         });
 
+        const connectedName = this.bleDevice?.name || document.getElementById('devId')?.textContent || "M1-0000343";
+        const cleanSerial = connectedName.replace('MicroNIR ', '').replace('MN ', '').replace('FTDI VID:', 'USB-').trim();
+
         const row = [
             sampleName,
             sampleId,
             lotInfo,
             ...dataRow,
-            "M1-0000343", 
+            cleanSerial, 
             "Spectra-Nir User",
             temp,
             exp,
