@@ -71,10 +71,21 @@ class MicroNIRApp {
     lampConfirmed: boolean;
     ignoreRxUntil: number;
     VAL: { ON: number; OFF: number };
-    history: { id: string, name: string, lot?: string, data: number[], time: number }[];
+    history: { 
+        id: string; 
+        name: string; 
+        lot?: string; 
+        data: number[]; 
+        time: number;
+        prediction?: number;
+        gh?: number;
+        unit?: string;
+        propName?: string;
+    }[];
     sampleData: { id: string; name: string; lot: string };
     onPrediction?: (res: PredictionResult | null) => void;
     onPredictionState?: (loading: boolean) => void;
+    onAbsorbanceToggle?: (active: boolean) => void;
     currentModel: ModelJSON | null = null;
 
     constructor() {
@@ -190,12 +201,20 @@ class MicroNIRApp {
                     {
                         label: 'Espectro',
                         data: [],
-                        borderColor: '#00b8d9',
-                        borderWidth: 1.5,
+                        borderColor: '#00d2ff',
+                        borderWidth: 2,
                         pointRadius: 0,
                         fill: true,
-                        backgroundColor: 'rgba(0,184,217,.07)',
-                        tension: 0.25,
+                        backgroundColor: (context: any) => {
+                            const chart = context.chart;
+                            const {ctx, chartArea} = chart;
+                            if (!chartArea) return null;
+                            const gradient = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+                            gradient.addColorStop(0, 'rgba(0, 210, 255, 0.25)');
+                            gradient.addColorStop(1, 'rgba(0, 210, 255, 0)');
+                            return gradient;
+                        },
+                        tension: 0.35,
                         order: 1
                     },
                     {
@@ -217,14 +236,14 @@ class MicroNIRApp {
                 animation: { duration: 150 },
                 scales: {
                     y: {
-                        grid: { color: 'rgba(255,255,255,0.05)' },
-                        ticks: { color: '#f1f5f9', font: { family: 'Share Tech Mono', size: 10, weight: 'bold' } },
-                        title: { display: true, text: 'Intensidad (Counts)', color: '#0ea5e9', font: { size: 11, family: 'Share Tech Mono', weight: 'bold' } }
+                        grid: { color: 'rgba(255,255,255,0.03)' },
+                        ticks: { color: '#94a3b8', font: { family: 'Inter', size: 10, weight: 500 } },
+                        title: { display: true, text: 'Intensidad', color: '#00d2ff', font: { size: 11, family: 'Inter', weight: 700 } }
                     },
                     x: {
-                        grid: { color: 'rgba(255,255,255,0.05)' },
-                        ticks: { color: '#94a3b8', font: { family: 'Share Tech Mono', size: 9 }, maxTicksLimit: 12 },
-                        title: { display: true, text: 'Longitud de onda (nm)', color: '#94a3b8', font: { size: 10, family: 'Share Tech Mono' } }
+                        grid: { color: 'rgba(255,255,255,0.03)' },
+                        ticks: { color: '#64748b', font: { family: 'Inter', size: 10 }, maxTicksLimit: 10 },
+                        title: { display: true, text: 'Longitud de onda (nm)', color: '#64748b', font: { size: 10, family: 'Inter', weight: 600 } }
                     }
                 },
                 plugins: {
@@ -248,8 +267,8 @@ class MicroNIRApp {
     consolePaused = false;
 
     log(msg: string, type = '') {
-        if (this.consolePaused && type !== 'log-sys' && type !== 'log-warn') return; // Permitir que mensajes de sistema importantes se sigan viendo 
-        const el = document.getElementById('console');
+        if (this.consolePaused && type !== 'log-sys' && type !== 'log-warn') return; 
+        const el = document.getElementById('consoleLog');
         if (!el) return;
         const d  = document.createElement('div');
         d.className = type;
@@ -1093,13 +1112,7 @@ class MicroNIRApp {
 
                 // 2. Capacidad de Batería (DLL Offset 273 - 1 byte)
                 const pctReal = payload[274]; 
-                const elBat = document.getElementById('valBat');
-                if (elBat) {
-                    elBat.textContent = `${pctReal}%`;
-                    if (pctReal < 20) elBat.className = "m-val red";
-                    else if (pctReal < 50) elBat.className = "m-val orange";
-                    else elBat.className = "m-val green";
-                }
+                this.updateBatteryUI(pctReal);
 
                 // 3. Temperatura (DLL Offset 260 - 2 bytes Big Endian con lógica 13-bits)
                 let tRaw = (payload[261] << 8) | payload[262];
@@ -1131,30 +1144,7 @@ class MicroNIRApp {
             }
         } else if (cmd === 0x42 || cmd === this.CMD.BATTERY) {
             const pct = (payload.length > 1) ? payload[1] : (payload[0] || 0); 
-            const valBat = document.getElementById('valBat');
-            const labelBat = document.getElementById('labelBat');
-            if (valBat) {
-                valBat.textContent = pct + '';
-                if (pct < 15) {
-                    valBat.style.color = '#ef4444';
-                    if (labelBat) {
-                        labelBat.textContent = 'BAT. BAJA';
-                        labelBat.style.color = '#ef4444';
-                    }
-                } else if (pct < 40) {
-                    valBat.style.color = '#f97316';
-                    if (labelBat) {
-                        labelBat.textContent = 'MEDIO';
-                        labelBat.style.color = '#f97316';
-                    }
-                } else {
-                    valBat.style.color = '#4ade80';
-                    if (labelBat) {
-                        labelBat.textContent = 'OK';
-                        labelBat.style.color = '#4ade80';
-                    }
-                }
-            }
+            this.updateBatteryUI(pct);
             this.log(`Nivel Batería (Cmd 0x42): ${pct}% | Payload: ${Array.from(payload).map(b => b.toString(16).padStart(2,'0')).join(' ')}`, 'log-warn');
         } else if (cmd === 0x54 || cmd === this.CMD.TEMP) {
             const t = ((payload[1]||0) | ((payload[2]||0) << 8)) / 10;
@@ -1162,6 +1152,42 @@ class MicroNIRApp {
             if (valTemp) valTemp.textContent = t.toFixed(1) + ' °C';
         } else if (cmd === 0x52) {
             this.log(`Status Report: ${Array.from(payload).map(b => b.toString(16).padStart(2,'0')).join(' ')}`, 'log-sys');
+        }
+    }
+
+    updateBatteryUI(pct: number) {
+        const valBat = document.getElementById('valBat');
+        const batPanel = document.getElementById('batPanel');
+        const labelBat = document.getElementById('labelBat');
+        
+        if (valBat) valBat.textContent = pct + '';
+        
+        if (pct < 20) {
+            // RED state
+            if (valBat) valBat.style.color = '#ef4444';
+            if (batPanel) {
+                batPanel.style.border = '1px solid #7f1d1d';
+                batPanel.style.background = 'rgba(127, 29, 29, 0.2)';
+                const icon = batPanel.querySelector('svg') as any;
+                if (icon) icon.style.color = '#ef4444';
+            }
+            if (labelBat) {
+                labelBat.textContent = 'BATERÍA CRÍTICA';
+                labelBat.style.color = '#ef4444';
+            }
+        } else {
+            // GREEN state (>= 20%)
+            if (valBat) valBat.style.color = '#22c55e';
+             if (batPanel) {
+                batPanel.style.border = '1px solid #064e3b';
+                batPanel.style.background = 'rgba(6, 78, 59, 0.2)';
+                const icon = batPanel.querySelector('svg') as any;
+                if (icon) icon.style.color = '#22c55e';
+            }
+            if (labelBat) {
+                labelBat.textContent = 'BATERÍA OK';
+                labelBat.style.color = '#22c55e';
+            }
         }
     }
 
@@ -1202,7 +1228,7 @@ class MicroNIRApp {
 
     saveScan(data: number[]) {
         const isSample = this.scanTarget === 'sample';
-        const scan = {
+        const scan: any = {
             id: isSample ? (this.sampleData.id || "N/A") : (Math.random() * 1000).toString(36),
             name: isSample ? (this.sampleData.name || "Muestra") : `Ref_${this.scanTarget}`,
             lot: isSample ? (this.sampleData.lot || "") : "",
@@ -1567,6 +1593,9 @@ class MicroNIRApp {
         }
         this.showAbsorbance = !this.showAbsorbance;
         this.log(this.showAbsorbance ? 'Mostrando Absorbancia (Log 1/R)' : 'Mostrando ADC Raw.', 'log-sys');
+        
+        if (this.onAbsorbanceToggle) this.onAbsorbanceToggle(this.showAbsorbance);
+        
         this.updateChartStatus();
         if (this.lastSpectrum.length > 0) this.updateChart(this.lastSpectrum, this.lastSpectrum.length);
     }
@@ -1730,10 +1759,11 @@ class MicroNIRApp {
                     // Actualizar el registro en el historial con el resultado de la predicción
                     if (this.history.length > 0 && this.scanTarget === 'sample') {
                         // El último escaneo de muestra está al inicio (index 0)
-                        this.history[0].prediction = result.value;
-                        this.history[0].gh = result.gh;
-                        this.history[0].unit = result.unit;
-                        this.history[0].propName = result.property;
+                        const last: any = this.history[0];
+                        last.prediction = result.value;
+                        last.gh = result.gh;
+                        last.unit = result.unit;
+                        last.propName = result.property;
                         localStorage.setItem('mn_history', JSON.stringify(this.history));
                         this.renderHistory();
                     }
@@ -1777,6 +1807,7 @@ export default function App() {
     }, [selectedModelId]);
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
     const [isUartUnlocked, setIsUartUnlocked] = useState(false);
+    const [showAbsorbance, setShowAbsorbance] = useState(false);
 
     const unlockUart = () => {
         const pass = window.prompt("Ingrese clave de administrador para Monitor UART:");
@@ -1799,6 +1830,9 @@ export default function App() {
             appRef.current.onPredictionState = (loading) => {
                 setIsPredicting(loading);
             };
+            appRef.current.onAbsorbanceToggle = (active) => {
+                setShowAbsorbance(active);
+            };
             appRef.current.initChart();
             appRef.current.setMode('ble');
             appRef.current.renderHistory();
@@ -1820,98 +1854,69 @@ export default function App() {
             <header>
                 <div className="logo">
                     <div className="logo-icon">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" strokeWidth="2.5">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--secondary)" strokeWidth="3">
                             <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
                         </svg>
                     </div>
                     <div>
-                        <div className="logo-text">Spectra-<em>Nir</em></div>
-                        <div className="logo-sub">HARDWARE ORCHESTRATOR v6.0 · FTDI PROTOCOL</div>
+                        <div className="logo-text">Spectra<span>Nir</span></div>
+                        <div className="logo-sub">MicroNIR CONTROL PANEL v6.0</div>
                     </div>
                 </div>
                 <div className="hdr-right">
-                    <div className="conn-tabs">
-                        <button className="conn-tab active" id="tabBLE" onClick={() => app()?.setMode('ble')}>
-                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11M12 2v20"/></svg>
-                            BLE (MÓVIL)
+                    <div className="conn-tabs ind-inset" style={{ padding: '4px', gap: '4px' }}>
+                        <button className="conn-tab" id="tabBLE" onClick={() => app()?.setMode('ble')} style={{ borderRadius: '4px', border: 'none' }}>
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11M12 2v20"/></svg>
+                            BLE
                         </button>
-                        <button className="conn-tab" id="tabUSB" onClick={() => app()?.setMode('usb')}>
-                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="7" y="8" width="10" height="8" rx="1"/><path d="M12 2v6M8 22h8M12 16v6"/></svg>
-                            PC/SPP (SERIAL)
+                        <button className="conn-tab" id="tabUSB" onClick={() => app()?.setMode('usb')} style={{ borderRadius: '4px', border: 'none' }}>
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="7" y="8" width="10" height="8" rx="1"/><path d="M12 2v6M8 22h8M12 16v6"/></svg>
+                            USB
                         </button>
                     </div>
-                    <div className="status-pill" id="statusPill">
-                        <div className="dot"></div>
-                        <span id="statusText">DESCONECTADO</span>
+                    <div className="status-pill connected" id="statusPill" style={{ background: 'rgba(74, 222, 128, 0.1)', border: '1px solid rgba(74, 222, 128, 0.3)', padding: '6px 14px' }}>
+                        <div className="dot" style={{ backgroundColor: 'currentColor', boxShadow: '0 0 10px var(--primary)' }}></div>
+                        <span id="statusText" style={{ fontWeight: '800', letterSpacing: '0.05em' }}>CONECTADO</span>
                     </div>
                 </div>
             </header>
 
-            <div className={`main transition-all duration-300 relative ${isSidebarOpen ? 'sidebar-open' : 'sidebar-closed'}`} style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-                <aside className={`sidebar transition-all duration-300 overflow-y-auto ${isSidebarOpen ? 'w-80 translate-x-0' : 'w-0 -translate-x-full'}`} style={{ 
+            <div className={`main transition-all duration-300 relative ${isSidebarOpen ? 'sidebar-open' : 'sidebar-closed'}`} style={{ display: 'flex', flex: 1 }}>
+                <aside className="sidebar ind-panel" style={{ 
                     position: 'relative', 
                     zIndex: 20, 
-                    background: 'rgba(15, 23, 42, 0.95)', 
-                    backdropFilter: 'blur(20px)',
-                    borderRight: isSidebarOpen ? '1px solid rgba(14, 165, 233, 0.2)' : 'none',
                     height: '100%',
-                    flexShrink: 0
+                    flexShrink: 0,
+                    width: isSidebarOpen ? '320px' : '0px',
+                    transition: 'width 0.3s ease',
+                    overflow: 'hidden'
                 }}>
-                    <div style={{ width: '320px', padding: '20px', display: isSidebarOpen ? 'block' : 'none' }}>
-                    <div style={{ 
-                        border: '1px solid rgba(14, 165, 233, 0.3)', 
-                        borderRadius: '12px', 
-                        padding: '16px 12px', 
-                        background: 'rgba(14, 25, 45, 0.4)', 
-                        backdropFilter: 'blur(10px)',
-                        marginBottom: '20px',
-                        transition: 'all 0.3s ease',
-                        position: 'relative'
+                    <div style={{ width: '320px', padding: '15px' }}>
+                    <div className="ind-inset" style={{ 
+                        marginBottom: '15px',
+                        padding: '12px'
                     }}>
-                        <details style={{ cursor: 'pointer', position: 'relative', zIndex: 1 }} open>
-                            <summary style={{ 
-                                listStyle: 'none', 
-                                display: 'flex', 
-                                justifyContent: 'space-between', 
-                                alignItems: 'center',
-                                outline: 'none'
-                             }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#4ade80', boxShadow: '0 0 12px rgba(74,222,128,0.8)' }}></div>
-                                    <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#0ea5e9', letterSpacing: '0.05em', textTransform: 'uppercase' }}>DIAGNÓSTICO HW</span>
-                                </div>
-                                <Activity size={14} style={{ color: '#0ea5e9', opacity: 0.7 }} />
-                            </summary>
-                            
-                            <div style={{ marginTop: '16px' }}>
-                                <div className="led-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '6px' }}>
-                                    <div className="led-badge" id="ledMCU" style={{ padding: '8px 2px', border: 'none', borderRadius: '8px', background: '#fff', color: '#0284c7', fontWeight: '900', fontSize: '0.55rem', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}><div className="d"></div>MCU</div>
-                                    <div className="led-badge" id="ledLAMP" style={{ padding: '8px 2px', border: 'none', borderRadius: '8px', background: '#fff', color: '#0284c7', fontWeight: '900', fontSize: '0.55rem', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}><div className="d"></div>LAMP</div>
-                                    <div className="led-badge" id="ledADC" style={{ padding: '8px 2px', border: 'none', borderRadius: '8px', background: '#fff', color: '#0284c7', fontWeight: '900', fontSize: '0.55rem', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}><div className="d"></div>ADC</div>
-                                    <div className="led-badge" id="ledDTR" style={{ padding: '8px 2px', border: 'none', borderRadius: '8px', background: '#fff', color: '#0284c7', fontWeight: '900', fontSize: '0.55rem', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}><div className="d"></div>PWR</div>
-                                </div>
-                                <div className="signal-row" style={{ marginTop: '8px', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
-                                    <div className="sig-badge" id="sigDTR" style={{ fontSize: '0.5rem', border: 'none', borderRadius: '5px', background: '#fff', color: '#0284c7', fontWeight: '900', padding: '4px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>DTR</div>
-                                    <div className="sig-badge" id="sigRTS" style={{ fontSize: '0.5rem', border: 'none', borderRadius: '5px', background: '#fff', color: '#0284c7', fontWeight: '900', padding: '4px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>RTS</div>
-                                    <div className="sig-badge" id="sigLINK" style={{ fontSize: '0.5rem', border: 'none', borderRadius: '5px', background: '#fff', color: '#0284c7', fontWeight: '900', padding: '4px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>LINK</div>
-                                </div>
-                                <div id="devId" style={{ fontSize: '0.55rem', color: 'rgba(14, 165, 233, 0.7)', textAlign: 'center', marginTop: '12px', fontFamily: 'var(--mono)', fontWeight: '700', letterSpacing: '0.05em' }}>—</div>
-                            </div>
-                        </details>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                            <div className="dot" style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#4ade80', boxShadow: '0 0 10px #4ade80' }}></div>
+                            <span style={{ fontSize: '0.65rem', fontWeight: '900', color: '#38bdf8', letterSpacing: '0.1em' }}>DIAGNÓSTICO HW</span>
+                        </div>
+                        
+                        <div className="led-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '6px' }}>
+                            <div className="led-badge" id="ledMCU" style={{ padding: '6px 2px', background: '#0a0f1a', border: '1px solid #2d3a54', color: '#94a3b8', fontSize: '0.55rem' }}><div className="d"></div>MCU</div>
+                            <div className="led-badge" id="ledLAMP" style={{ padding: '6px 2px', background: '#0a0f1a', border: '1px solid #2d3a54', color: '#94a3b8', fontSize: '0.55rem' }}><div className="d"></div>LAMP</div>
+                            <div className="led-badge" id="ledADC" style={{ padding: '6px 2px', background: '#0a0f1a', border: '1px solid #2d3a54', color: '#94a3b8', fontSize: '0.55rem' }}><div className="d"></div>ADC</div>
+                            <div className="led-badge" id="ledDTR" style={{ padding: '6px 2px', background: '#0a0f1a', border: '1px solid #2d3a54', color: '#94a3b8', fontSize: '0.55rem' }}><div className="d"></div>PWR</div>
+                        </div>
+                        <div id="devId" style={{ fontSize: '0.55rem', color: '#38bdf8', textAlign: 'center', marginTop: '10px', fontFamily: 'var(--mono)', fontWeight: '700', opacity: 0.7 }}>—</div>
                     </div>
 
-                    <div className="product-section" style={{ 
-                        background: 'rgba(14, 25, 45, 0.4)', 
-                        backdropFilter: 'blur(10px)',
-                        border: '1px solid rgba(14, 165, 233, 0.3)',
-                        borderRadius: '12px',
-                        padding: '16px 12px',
-                        position: 'relative',
-                        marginBottom: '20px'
+                    <div className="ind-inset" style={{ 
+                        padding: '12px',
+                        marginBottom: '15px'
                     }}>
-                        <div className="sec-label" style={{ color: '#0ea5e9', fontWeight: '800', border: 'none', fontSize: '0.65rem', textTransform: 'uppercase', marginBottom: '12px', padding: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ color: '#38bdf8', fontWeight: '900', fontSize: '0.6rem', textTransform: 'uppercase', marginBottom: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <span>PRODUCTO / MODELO</span>
-                            <Database size={12} />
+                            <Database size={10} />
                         </div>
                         
                         <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
@@ -2006,139 +2011,91 @@ export default function App() {
                         )}
                     </div>
 
-                    <div className="uuid-box" id="uuidBox" style={{ 
-                        background: 'rgba(14, 25, 45, 0.4)', 
-                        backdropFilter: 'blur(10px)',
-                        border: '1px solid rgba(14, 165, 233, 0.3)',
-                        borderRadius: '12px',
-                        padding: '16px 12px',
-                        position: 'relative',
-                        marginBottom: '20px',
-                        boxShadow: '0 4px 15px rgba(0,0,0,0.2)'
+                    <div className="ind-inset" style={{ 
+                        padding: '12px',
+                        marginBottom: '15px'
                     }}>
-                        <div className="sec-label" style={{ color: '#0ea5e9', fontWeight: '800', border: 'none', fontSize: '0.65rem', textTransform: 'uppercase', marginBottom: '8px', padding: 0 }}>UUID SERVICIO BLE</div>
+                        <div style={{ color: '#38bdf8', fontWeight: '900', fontSize: '0.6rem', textTransform: 'uppercase', marginBottom: '8px' }}>UUID SERVICIO BLE</div>
                         <input id="customUUIDInput" type="text"
                             onInput={(e: any) => { if (appRef.current) appRef.current.customServiceUUID = e.target.value.trim().toLowerCase() || null; }}
+                            className="ind-inset"
                             style={{ 
-                                background: 'rgba(0,0,0,0.2)', 
+                                background: '#050a14', 
                                 color: '#fff', 
-                                border: '1px solid rgba(14, 165, 233, 0.3)',
-                                outline: 'none',
-                                position: 'relative',
-                                zIndex: 1,
+                                border: '1px solid var(--border)',
                                 width: '100%',
-                                padding: '10px',
-                                borderRadius: '8px',
-                                fontSize: '0.65rem',
+                                padding: '8px',
+                                fontSize: '0.55rem',
                                 fontFamily: 'var(--mono)'
                              } as any}
-                            placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                            placeholder="DEFAULT"
                         />
                     </div>
 
-                    <div id="bleSection" style={{ marginBottom: '20px' }}>
-                        <button className="btn" onClick={() => app()?.connect()} style={{ 
-                            background: 'rgba(14, 165, 233, 0.1)', 
-                            color: '#0ea5e9', 
-                            border: '1px solid rgba(14, 165, 233, 0.4)', 
-                            borderRadius: '12px', 
-                            padding: '14px',
-                            boxShadow: '0 4px 15px rgba(0,0,0,0.2)',
-                            fontWeight: '800',
-                            backdropFilter: 'blur(10px)',
-                            textTransform: 'uppercase',
-                            letterSpacing: '0.08em',
-                            fontSize: '0.7rem'
+                    <div id="bleSection" style={{ marginBottom: '15px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <button className="btn-action" onClick={() => app()?.connect()} style={{ 
+                            width: '100%',
+                            padding: '12px',
+                            borderRadius: '4px',
+                            fontWeight: '900',
+                            fontSize: '0.65rem'
                         }}>
-                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{marginRight: '8px', filter: 'drop-shadow(0 0 5px rgba(14, 165, 233, 0.5))'}}><path d="M6.5 6.5l11 11M17.5 6.5l-11 11M12 2v20"/></svg>
-                            CONECTAR MICRO-NIR
+                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" style={{marginRight: '8px'}}><path d="M6.5 6.5l11 11M17.5 6.5l-11 11M12 2v20"/></svg>
+                             CONECTAR MICRO-NIR
                         </button>
 
-                        <button id="btnDisc" className="btn" onClick={() => window.location.reload()} style={{ 
-                            marginTop: '12px',
-                            background: 'transparent',
-                            border: '1px solid rgba(239, 68, 68, 0.2)',
-                            color: 'rgba(239, 68, 68, 0.6)',
-                            borderRadius: '12px',
-                            fontSize: '0.6rem',
-                            fontWeight: '700',
-                            width: '100%',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            padding: '10px',
-                            textTransform: 'uppercase',
-                            letterSpacing: '0.05em'
+                        <button id="btnDisc" onClick={() => window.location.reload()} style={{ 
+                            background: 'rgba(239, 68, 68, 0.1)',
+                            border: '1px solid rgba(239, 68, 68, 0.3)',
+                            color: '#ef4444',
+                            borderRadius: '4px',
+                            fontSize: '0.55rem',
+                            fontWeight: '900',
+                            padding: '8px',
+                            textTransform: 'uppercase'
                         }}>
-                            <PowerOff size={14} style={{marginRight: '8px', opacity: 0.5}}/>
-                            Desconectar
+                             DECONECTAR / RESET
                         </button>
                     </div>
 
-                    <div className="history-section" style={{ 
-                        background: 'rgba(14, 25, 45, 0.4)', 
-                        backdropFilter: 'blur(10px)',
-                        border: '1px solid rgba(14, 165, 233, 0.3)',
-                        borderRadius: '12px',
-                        position: 'relative',
-                        overflow: 'hidden',
+                    <div className="ind-panel" style={{ 
                         flex: 1,
                         display: 'flex',
-                        flexDirection: 'column'
+                        flexDirection: 'column',
+                        minHeight: 0,
+                        padding: '12px',
+                        marginBottom: '15px'
                     }}>
-                        <div className="history-hdr" style={{ borderBottom: '1px solid rgba(14, 165, 233, 0.1)', position: 'relative', zIndex: 1, padding: '12px' }}>
-                            <div className="sec-label" style={{ color: '#0ea5e9', fontWeight: '800', border: 'none', marginBottom: 0, fontSize: '0.65rem', textTransform: 'uppercase', padding: 0 }}>HISTORIAL</div>
-                            <button className="h-clear" onClick={() => app()?.clearHistory()} style={{ color: 'rgba(239, 68, 68, 0.6)', fontWeight: '800', fontSize: '0.55rem', textTransform: 'uppercase' }}>Limpiar</button>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                            <span style={{ color: '#38bdf8', fontWeight: '900', fontSize: '0.6rem' }}>LOG DE ANALISIS</span>
+                            <button onClick={() => app()?.clearHistory()} style={{ fontSize: '0.5rem', color: 'rgba(255,255,255,0.3)', fontWeight: '900' }}>LIMPIAR</button>
                         </div>
-                        <div id="historyList" className="history-list" style={{ position: 'relative', zIndex: 1, flex: 1, overflowY: 'auto' }}>
-                            <div className="dim-text" style={{fontSize:'.65rem', padding:'20px', color: 'rgba(14, 165, 233, 0.3)', fontWeight: '600' }}>Sin historial...</div>
+                        <div id="historyList" className="ind-inset" style={{ flex: 1, overflowY: 'auto' }}>
+                             <div className="dim-text" style={{fontSize:'.55rem', padding:'15px', color: 'rgba(255,255,255,0.1)', fontWeight: '900', textAlign: 'center' }}>ESPERANDO DATOS...</div>
                         </div>
                     </div>
 
-                    <div className="console-wrap" style={{ 
-                        display: 'flex', 
-                        flexDirection: 'column', 
-                        border: '1px solid rgba(14, 165, 233, 0.3)', 
-                        borderRadius: '12px', 
-                        overflow: 'hidden', 
-                        marginTop: '15px',
-                        background: 'rgba(14, 25, 45, 0.4)',
-                        backdropFilter: 'blur(10px)'
-                    }}>
-                        <details style={{ width: '100%' }}>
+                    <div className="ind-panel" style={{ marginTop: '0px' }}>
+                        <details open style={{ width: '100%' }}>
                             <summary style={{ 
-                                padding: '10px 12px', 
-                                background: 'rgba(14, 165, 233, 0.1)', 
-                                cursor: 'pointer', 
-                                display: 'flex', 
-                                justifyContent: 'space-between', 
-                                alignItems: 'center',
-                                userSelect: 'none',
-                                listStyle: 'none',
-                                borderBottom: '1px solid rgba(14, 165, 233, 0.3)'
-                            }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                    <Activity size={12} style={{ color: '#0ea5e9' }} />
-                                    <span style={{ fontSize: '0.65rem', fontWeight: '800', color: 'rgba(14, 165, 233, 0.9)', letterSpacing: '-0.01em' }}>CONSOLA / DEBUG</span>
+                                padding: '8px 12px',
+                                fontSize: '0.55rem',
+                                fontWeight: '900',
+                                color: '#38bdf8',
+                                cursor: 'pointer',
+                                outline: 'none',
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center'
+                             }}>
+                                CONSOLA DE SISTEMA
+                                <Activity size={10} />
+                             </summary>
+                             <div className="ind-inset" style={{ height: '180px', padding: '8px', overflowY: 'auto' }}>
+                                <div id="consoleLog" style={{ fontSize: '0.5rem', fontFamily: 'var(--mono)', color: 'rgba(255,255,255,0.7)', lineHeight: '1.4' }}>
+                                    {'>'} MicroNIR v6.0 Ready...
                                 </div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                    <button className="chip-btn" id="btnPause" onClick={(e: any) => { 
-                                        e.preventDefault();
-                                        e.stopPropagation();
-                                        const a = app(); 
-                                        if (a) { 
-                                            a.consolePaused = !a.consolePaused; 
-                                            e.target.innerText = a.consolePaused ? '▶' : '⏸'; 
-                                            e.target.style.color = a.consolePaused ? '#fff' : ''; 
-                                        } 
-                                    }} style={{ fontSize: '0.6rem', padding: '2px 6px', background: 'rgba(255,255,255,0.2)', color: '#fff', border: '1px solid rgba(255,255,255,0.3)' }}>⏸</button>
-                                </div>
-                            </summary>
-                            <div style={{ height: '300px', borderTop: '1px solid var(--border)' }}>
-                                <div className="console" id="console" style={{ fontSize: '11px', lineHeight: '1.3', height: '100%', background: 'var(--bg)' }}>
-                                    <div className="log-sys">{'>'} MicroNIR v6.0 Ready...</div>
-                                </div>
-                            </div>
+                             </div>
                         </details>
                     </div>
                 </div>
@@ -2182,92 +2139,74 @@ export default function App() {
 
                 <main className="content transition-all duration-300" style={{ 
                     flex: 1, 
-                    overflowY: 'auto', 
-                    padding: '24px',
-                    marginLeft: 0
+                    padding: '20px 24px',
+                    marginLeft: 0,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '15px',
+                    overflowY: 'auto'
                 }}>
-                    <div className="metrics-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
+                    <div className="metrics-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '12px' }}>
                         {/* CARD 1: CANAL DE DATOS */}
-                        <div className="metric-card" style={{ background: 'rgba(14, 25, 45, 0.4)', backdropFilter: 'blur(10px)', border: '1px solid rgba(14, 165, 233, 0.3)', borderRadius: '12px', padding: '1.25rem', boxShadow: '0 4px 15px rgba(0,0,0,0.2)', position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                            <div style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', height: '50%', background: 'linear-gradient(to top, rgba(14, 165, 233, 0.1), transparent)', zIndex: 0 }}></div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', position: 'relative', zIndex: 1 }}>
-                                <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: '#0ea5e9', fontWeight: '800' }}>Canal de Datos</span>
-                                <Cpu size={20} style={{ color: '#0ea5e9', opacity: 1, filter: 'drop-shadow(0 0 8px rgba(14, 165, 233, 0.6))' }} />
+                        <div className="ind-panel m-glow-blue" style={{ display: 'flex', flexDirection: 'column', gap: '6px', padding: '10px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span style={{ fontSize: '0.55rem', color: '#38bdf8', fontWeight: '900', letterSpacing: '0.05em' }}>CANAL DE DATOS</span>
+                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" strokeWidth="3"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
                             </div>
-                            <div style={{ position: 'relative', zIndex: 1, marginTop: '8px' }}>
-                                <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
-                                    <span id="valMode" style={{ fontSize: '1.5rem', fontWeight: '800', color: '#ffffff', fontFamily: 'var(--mono)', textShadow: '0 2px 10px rgba(0,0,0,0.5)' }}>—</span>
-                                </div>
+                            <div className="ind-inset" style={{ textAlign: 'center', padding: '6px 0' }}>
+                                <span id="valMode" style={{ fontSize: '1.2rem', fontWeight: '900', color: '#fff', fontFamily: 'var(--mono)' }}>BLE</span>
                             </div>
-                            <div style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', height: '4px', background: 'rgba(14, 165, 233, 0.3)', opacity: 0.6 }}></div>
                         </div>
 
                         {/* CARD 2: INTEGRACIÓN */}
-                        <div className="metric-card" style={{ background: 'rgba(14, 25, 45, 0.4)', backdropFilter: 'blur(10px)', border: '1px solid rgba(14, 165, 233, 0.3)', borderRadius: '12px', padding: '1.25rem', boxShadow: '0 4px 15px rgba(0,0,0,0.2)', position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                            <div style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', height: '50%', background: 'linear-gradient(to top, rgba(14, 165, 233, 0.1), transparent)', zIndex: 0 }}></div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', position: 'relative', zIndex: 1 }}>
-                                <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: '#0ea5e9', fontWeight: '800' }}>Integración</span>
-                                <Clock size={20} style={{ color: '#0ea5e9', opacity: 1, filter: 'drop-shadow(0 0 8px rgba(14, 165, 233, 0.6))' }} />
+                        <div className="ind-panel m-glow-blue" style={{ display: 'flex', flexDirection: 'column', gap: '6px', padding: '10px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span style={{ fontSize: '0.55rem', color: '#38bdf8', fontWeight: '900', letterSpacing: '0.05em' }}>INTEGRACIÓN</span>
+                                <Clock size={10} style={{ color: '#38bdf8' }} />
                             </div>
-                            <div style={{ position: 'relative', zIndex: 1, marginTop: '8px' }}>
-                                <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
-                                    <span id="valExp" style={{ fontSize: '1.5rem', fontWeight: '800', color: '#ffffff', fontFamily: 'var(--mono)', textShadow: '0 2px 10px rgba(0,0,0,0.5)' }}>—</span>
-                                    <span style={{ fontSize: '0.7rem', color: '#0ea5e9', fontWeight: '700' }}>ms</span>
-                                </div>
+                            <div className="ind-inset" style={{ textAlign: 'center', padding: '6px 0' }}>
+                                <span id="valExp" style={{ fontSize: '1.2rem', fontWeight: '900', color: '#fff', fontFamily: 'var(--mono)' }}>10.0</span>
+                                <span style={{ fontSize: '0.55rem', color: '#38bdf8', marginLeft: '3px', fontWeight: '800' }}>ms</span>
                             </div>
-                            <div style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', height: '4px', background: 'rgba(14, 165, 233, 0.3)', opacity: 0.6 }}></div>
                         </div>
 
                         {/* CARD 3: TEMPERATURA */}
-                        <div className="metric-card" style={{ background: 'rgba(14, 25, 45, 0.4)', backdropFilter: 'blur(10px)', border: '1px solid rgba(14, 165, 233, 0.3)', borderRadius: '12px', padding: '1.25rem', boxShadow: '0 4px 15px rgba(0,0,0,0.2)', position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                            <div style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', height: '50%', background: 'linear-gradient(to top, rgba(14, 165, 233, 0.1), transparent)', zIndex: 0 }}></div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', position: 'relative', zIndex: 1 }}>
-                                <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: '#0ea5e9', fontWeight: '800' }}>Temperatura</span>
-                                <Thermometer size={20} style={{ color: '#0ea5e9', opacity: 1, filter: 'drop-shadow(0 0 8px rgba(14, 165, 233, 0.6))' }} />
+                        <div className="ind-panel m-glow-blue" style={{ display: 'flex', flexDirection: 'column', gap: '6px', padding: '10px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span style={{ fontSize: '0.55rem', color: '#38bdf8', fontWeight: '900', letterSpacing: '0.05em' }}>TEMPERATURA</span>
+                                <Thermometer size={10} style={{ color: '#38bdf8' }} />
                             </div>
-                            <div style={{ position: 'relative', zIndex: 1, marginTop: '8px' }}>
-                                <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
-                                    <span id="valTemp" style={{ fontSize: '1.5rem', fontWeight: '800', color: '#ffffff', fontFamily: 'var(--mono)', textShadow: '0 2px 10px rgba(0,0,0,0.5)' }}>—</span>
-                                    <span style={{ fontSize: '0.7rem', color: '#0ea5e9', fontWeight: '700' }}>°C</span>
-                                </div>
+                            <div className="ind-inset" style={{ textAlign: 'center', padding: '6px 0' }}>
+                                <span id="valTemp" style={{ fontSize: '1.2rem', fontWeight: '900', color: '#fff', fontFamily: 'var(--mono)' }}>33.7</span>
+                                <span style={{ fontSize: '0.55rem', color: '#38bdf8', marginLeft: '3px', fontWeight: '800' }}>°C</span>
                             </div>
-                            <div style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', height: '4px', background: 'rgba(14, 165, 233, 0.3)', opacity: 0.6 }}></div>
                         </div>
 
                         {/* CARD 4: BATERÍA */}
-                        <div className="metric-card" style={{ background: 'rgba(14, 25, 45, 0.4)', backdropFilter: 'blur(10px)', border: '1px solid rgba(14, 165, 233, 0.3)', borderRadius: '12px', padding: '1.25rem', boxShadow: '0 4px 15px rgba(0,0,0,0.2)', position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                            <div style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', height: '50%', background: 'linear-gradient(to top, rgba(14, 165, 233, 0.1), transparent)', zIndex: 0 }}></div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', position: 'relative', zIndex: 1 }}>
-                                <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: '#0ea5e9', fontWeight: '800' }}>Nivel Batería</span>
-                                <Battery size={20} style={{ color: '#0ea5e9', opacity: 1, filter: 'drop-shadow(0 0 8px rgba(14, 165, 233, 0.6))' }} />
+                        <div className="ind-panel" id="batPanel" style={{ display: 'flex', flexDirection: 'column', gap: '6px', padding: '10px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span id="labelBat" style={{ fontSize: '0.55rem', color: '#f97316', fontWeight: '900', letterSpacing: '0.05em' }}>NIVEL BATERÍA</span>
+                                <Battery size={10} style={{ color: '#f97316' }} />
                             </div>
-                            <div style={{ position: 'relative', zIndex: 1, marginTop: '8px' }}>
-                                <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
-                                    <span id="valBat" style={{ fontSize: '1.5rem', fontWeight: '800', fontFamily: 'var(--mono)', textShadow: '0 2px 10px rgba(0,0,0,0.5)' }}>—</span>
-                                    <span id="labelBat" style={{ fontSize: '0.6rem', fontWeight: '800', marginLeft: '4px' }}></span>
-                                    <span style={{ fontSize: '0.7rem', color: '#0ea5e9', fontWeight: '700' }}>%</span>
-                                </div>
+                            <div className="ind-inset" style={{ textAlign: 'center', padding: '6px 0', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
+                                <span id="valBat" style={{ fontSize: '1.2rem', fontWeight: '900', color: '#fff', fontFamily: 'var(--mono)' }}>—</span>
+                                <span style={{ fontSize: '0.8rem', color: 'currentColor', marginLeft: '1px', fontWeight: '800', opacity: 0.5 }}>%</span>
                             </div>
-                            <div style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', height: '4px', background: 'rgba(14, 165, 233, 0.3)', opacity: 0.6 }}></div>
                         </div>
 
                         {/* CARD 5: SINCRONIZACIÓN */}
-                        <div className="metric-card" style={{ background: 'rgba(14, 25, 45, 0.4)', backdropFilter: 'blur(10px)', border: '1px solid rgba(14, 165, 233, 0.3)', borderRadius: '12px', padding: '1.25rem', boxShadow: '0 4px 15px rgba(0,0,0,0.2)', position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                            <div style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', height: '50%', background: 'linear-gradient(to top, rgba(14, 165, 233, 0.1), transparent)', zIndex: 0 }}></div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', position: 'relative', zIndex: 1 }}>
-                                <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: '#0ea5e9', fontWeight: '800' }}>Sincronización</span>
-                                <Activity size={20} style={{ color: '#0ea5e9', opacity: 1, filter: 'drop-shadow(0 0 8px rgba(14, 165, 233, 0.6))' }} />
+                        <div className="ind-panel m-glow-blue" style={{ display: 'flex', flexDirection: 'column', gap: '6px', padding: '10px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span style={{ fontSize: '0.55rem', color: '#38bdf8', fontWeight: '900', letterSpacing: '0.05em' }}>SINCRONIZACIÓN</span>
+                                <Activity size={10} style={{ color: '#38bdf8' }} />
                             </div>
-                            <div style={{ position: 'relative', zIndex: 1, marginTop: '8px' }}>
-                                <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
-                                    <span id="valPkt" style={{ fontSize: '1.55rem', fontWeight: '800', color: '#ffffff', fontFamily: 'var(--mono)', textShadow: '0 2px 10px rgba(0,0,0,0.5)' }}>— / —</span>
-                                </div>
+                            <div className="ind-inset" style={{ textAlign: 'center', padding: '6px 0' }}>
+                                <span id="valPkt" style={{ fontSize: '1.2rem', fontWeight: '900', color: '#fff', fontFamily: 'var(--mono)' }}>125 / 3</span>
                             </div>
-                            <div style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', height: '4px', background: 'rgba(14, 165, 233, 0.3)', opacity: 0.6 }}></div>
                         </div>
                     </div>
 
-                    <div id="progressContainer" style={{display:'none', background:'rgba(0,184,217,0.05)', borderRadius:'6px', padding:'12px', border:'1px solid rgba(0,184,217,0.1)', marginBottom:'15px'}}>
+                    <div id="progressContainer" style={{display:'none', background:'rgba(0,184,217,0.05)', borderRadius:'6px', padding:'12px', border:'1px solid rgba(0,184,217,0.1)', marginBottom:'0px'}}>
                         <div style={{display:'flex', justifyContent:'space-between', marginBottom:'10px'}}>
                             <span className="label" style={{fontSize:'0.75rem', color:'var(--primary)', fontFamily:'Share Tech Mono', fontWeight:'bold'}}>PROGRESO DE INTEGRACIÓN</span>
                             <span id="progressText" className="val" style={{fontSize:'0.75rem', color:'var(--primary)', fontFamily:'Share Tech Mono'}}>0%</span>
@@ -2277,264 +2216,167 @@ export default function App() {
                         </div>
                     </div>
 
-                    <div className="calibration-wizard" style={{ 
+                    <div className="ind-panel" style={{ 
                         display: 'flex', 
                         gap: '12px', 
-                        background: 'linear-gradient(135deg, #112240 0%, #0a192f 100%)', 
-                        padding: '20px', 
-                        borderRadius: '16px', 
-                        border: '1px solid #1e293b', 
-                        boxShadow: '0 10px 25px -3px rgba(0,0,0,0.4)', 
-                        marginBottom: '20px', 
+                        padding: '12px', 
                         alignItems: 'stretch' 
                     }}>
                         <div style={{ 
                             display: 'flex', 
                             flexDirection: 'column', 
                             justifyContent: 'center',
-                            paddingRight: '20px',
-                            borderRight: '2px solid #1e293b',
-                            marginRight: '10px'
+                            paddingRight: '15px',
+                            borderRight: '1px solid var(--border)',
+                            marginRight: '5px'
                         }}>
-                             <div style={{ color: '#94a3b8', fontSize: '0.65rem', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Protocolo de</div>
-                             <div style={{ color: '#fff', fontSize: '0.9rem', fontWeight: '900', letterSpacing: '-0.02em' }}>CALIBRACIÓN</div>
+                             <div style={{ color: 'var(--dim)', fontSize: '0.55rem', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.1em' }}>PROTOCOLO DE</div>
+                             <div style={{ color: '#fff', fontSize: '0.85rem', fontWeight: '900', letterSpacing: '0.05em' }}>CALIBRACIÓN</div>
                         </div>
                         
-                        <button id="btnDark" className="btn" onClick={() => app()?.setDarkReference()} style={{ 
-                            flex: 1, 
-                            backgroundColor: calib.dark ? 'rgba(56,189,248,0.1)' : 'rgba(255,255,255,0.03)', 
-                            color: calib.dark ? '#38bdf8' : '#94a3b8', 
-                            border: calib.dark ? '2px solid #38bdf8' : '1px solid #334155', 
-                            borderRadius: '12px',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            padding: '12px',
-                            height: 'auto',
-                            transition: 'all 0.2s',
-                            boxShadow: calib.dark ? '0 0 20px rgba(56,189,248,0.2)' : 'none'
-                        }}>
-                            <Moon size={18} style={{ marginBottom: '6px', opacity: 0.8 }} />
-                            <span style={{ fontSize: '0.6rem', opacity: calib.dark ? 0.8 : 0.5, marginBottom: '2px' }}>
+                        <button id="btnDark" className={`step-card ${calib.dark ? 'completed' : 'active'}`} onClick={() => app()?.setDarkReference()} style={{ padding: '10px' }}>
+                            <Moon size={16} style={{ marginBottom: '4px' }} />
+                            <span style={{ fontSize: '0.5rem', fontWeight: '900', marginBottom: '1px', opacity: 0.6 }}>
                                 {calib.dark ? '✓ COMPLETADO' : 'PASO 01'}
                             </span>
-                            <span style={{ fontSize: '0.85rem', fontWeight: '800' }}>OSCURIDAD</span>
+                            <span style={{ fontSize: '0.7rem', fontWeight: '900' }}>OSCURIDAD</span>
                         </button>
                         
-                        <button id="btnWhite" className="btn" onClick={() => app()?.setWhiteReference()} style={{ 
-                            flex: 1, 
-                            backgroundColor: calib.white ? 'rgba(56,189,248,0.1)' : 'rgba(255,255,255,0.03)', 
-                            color: calib.white ? '#38bdf8' : '#94a3b8', 
-                            border: calib.white ? '2px solid #38bdf8' : '1px solid #334155', 
-                            borderRadius: '12px',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            padding: '12px',
-                            height: 'auto',
-                            transition: 'all 0.2s',
-                            boxShadow: calib.white ? '0 0 20px rgba(56,189,248,0.2)' : 'none'
-                        }}>
-                            <Sun size={18} style={{ marginBottom: '6px', opacity: 0.8 }} />
-                            <span style={{ fontSize: '0.6rem', opacity: calib.white ? 0.8 : 0.5, marginBottom: '2px' }}>
+                        <button id="btnWhite" className={`step-card ${calib.white ? 'completed' : (calib.dark ? 'active' : '')}`} onClick={() => app()?.setWhiteReference()} style={{ padding: '10px' }}>
+                            <Sun size={16} style={{ marginBottom: '4px' }} />
+                            <span style={{ fontSize: '0.5rem', fontWeight: '900', marginBottom: '1px', opacity: 0.6 }}>
                                 {calib.white ? '✓ COMPLETADO' : 'PASO 02'}
                             </span>
-                            <span style={{ fontSize: '0.85rem', fontWeight: '800' }}>BLANCO REFE.</span>
+                            <span style={{ fontSize: '0.7rem', fontWeight: '900' }}>BLANCO REFE.</span>
                         </button>
                         
-                        <button id="btnAbs" className="btn" 
+                        <button id="btnAbs" className="btn-action" 
                             onClick={() => {
+                                console.log('Botón Analizar Muestra clicado');
                                 setPredictionResult(null);
-                                app()?.scanSample();
+                                const instance = app();
+                                if (instance) {
+                                    instance.log('Solicitud de análisis de muestra iniciada...', 'log-sys');
+                                    instance.scanSample();
+                                } else {
+                                    console.error('Instancia de app no disponible');
+                                }
                             }} 
+                            disabled={!(calib.dark && calib.white)}
                             style={{ 
                             flex: 1.5, 
-                            background: (calib.dark && calib.white) 
-                                ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)' 
-                                : '#1e293b', 
-                            color: (calib.dark && calib.white) ? '#fff' : '#475569', 
-                            border: 'none', 
-                            borderRadius: '12px',
+                            borderRadius: '6px',
                             display: 'flex',
                             flexDirection: 'column',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            padding: '12px',
-                            height: 'auto',
-                            boxShadow: (calib.dark && calib.white) ? '0 10px 20px -3px rgba(16,185,129,0.4)' : 'none',
+                            padding: '10px',
                             transition: 'all 0.2s',
-                            cursor: (calib.dark && calib.white) ? 'pointer' : 'not-allowed',
-                            opacity: (calib.dark && calib.white) ? 1 : 0.7,
                             position: 'relative',
-                            overflow: 'hidden'
+                            overflow: 'hidden',
+                            cursor: (calib.dark && calib.white) ? 'pointer' : 'not-allowed',
+                            opacity: (calib.dark && calib.white) ? 1 : 0.5
                         }}>
-                            <div style={{
-                                position: 'absolute',
-                                top: 0, left: 0, width: '100%', height: '100%',
-                                background: 'linear-gradient(45deg, transparent, rgba(255,255,255,0.1), transparent)',
-                                transform: 'translateX(-100%)',
-                                animation: (calib.dark && calib.white) ? 'shimmer 3s infinite' : 'none'
-                            }}></div>
-                            <Zap size={20} style={{ marginBottom: '6px', filter: 'drop-shadow(0 0 5px rgba(255,255,255,0.5))' }} />
-                            <span style={{ fontSize: '0.6rem', opacity: 0.8, marginBottom: '2px', fontWeight: '800' }}>PASO 03</span>
-                            <span style={{ fontSize: '1rem', fontWeight: '900', letterSpacing: '0.02em' }}>ANALIZAR MUESTRA</span>
+                            <Zap size={18} style={{ marginBottom: '4px' }} />
+                            <span style={{ fontSize: '0.5rem', fontWeight: '900', marginBottom: '1px', opacity: 0.8 }}>PASO 03</span>
+                            <span style={{ fontSize: '1rem', fontWeight: '950', letterSpacing: '0.05em' }}>ANALIZAR MUESTRA</span>
                         </button>
                     </div>
 
-
-
-                    <div className="dashboard-main" style={{ display: 'flex', gap: '20px', minHeight: '500px', marginBottom: '20px' }}>
+                    <div className="dashboard-main" style={{ display: 'flex', gap: '15px', minHeight: '480px', flex: 1 }}>
                         {/* LADO IZQUIERDO: ESPECTRO */}
-                        <div className="chart-panel" style={{ flex: 7, marginBottom: 0 }}>
-                            <div className="chart-hdr">
-                                <span className="chart-title">ESPECTRO NIR — 128 PÍXELES InGaAs</span>
-                                <div className="chart-btns">
-                                    <button className="chip-btn" onClick={() => app()?.toggleAbsorbance()}>Adc / Absorbancia</button>
-                                    <button className="chip-btn" onClick={() => app()?.clearChart()}>Limpiar</button>
-                                    <button className="chip-btn hover:bg-green-500/10" onClick={() => app()?.exportCSV()} style={{ 
-                                        background: 'transparent', 
-                                        border: '1px solid rgba(34,197,94,0.6)', 
-                                        color: '#4ade80',
-                                        transition: 'all 0.2s'
-                                    }}>Exportar CSV</button>
+                        <div className="ind-panel" style={{ flex: 7, display: 'flex', flexDirection: 'column', padding: '15px' }}>
+                            <div className="chart-hdr" style={{ marginBottom: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                <div>
+                                    <h2 style={{ fontSize: '1.4rem', fontWeight: '950', color: '#fff', letterSpacing: '-0.02em', marginBottom: '2px' }}>
+                                        {models.find(m => m.id === selectedModelId)?.product || 'Espectro NIR'}
+                                    </h2>
+                                    <span style={{ fontSize: '0.65rem', fontWeight: '900', color: '#64748b', letterSpacing: '0.1em', textTransform: 'uppercase' }}>128 PÍXELES InGaAs — {showAbsorbance ? 'ABSORBANCIA' : 'INTENSIDAD ADC'}</span>
+                                </div>
+                                <div className="chart-btns" style={{ gap: '6px' }}>
+                                    <button className="chip-btn" onClick={() => app()?.toggleAbsorbance()}>ADC / ABSORBANCIA</button>
+                                    <button className="chip-btn" onClick={() => app()?.clearChart()}>LIMPIAR</button>
+                                    <button className="chip-btn" onClick={() => app()?.exportCSV()} style={{ border: '1px solid var(--primary)', color: 'var(--primary)', fontWeight: '900' }}>EXPORTAR CSV</button>
                                 </div>
                             </div>
-                            <div className="chart-canvas-wrap">
+                            <div className="chart-container" style={{ flex: 1, minHeight: '350px' }}>
                                 <canvas id="nirChart"></canvas>
                             </div>
                         </div>
 
                         {/* LADO DERECHO: DASHBOARD DE RESULTADOS */}
-                        <div className="results-panel" style={{ 
-                            flex: 3, 
-                            background: 'rgba(15, 23, 42, 0.4)', 
-                            border: '1px solid rgba(14, 165, 233, 0.3)', 
-                            borderRadius: '16px',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            padding: '20px',
-                            boxShadow: '0 4px 30px rgba(0,0,0,0.4)',
-                            backdropFilter: 'blur(10px)'
-                        }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px', paddingBottom: '12px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                                <Zap size={18} style={{ color: '#0ea5e9' }} />
-                                <span style={{ fontWeight: '800', fontSize: '0.7rem', color: '#fff', letterSpacing: '0.05em' }}>PANTALLA DE RESULTADOS</span>
+                        <div className="ind-panel" style={{ flex: 3.5, display: 'flex', flexDirection: 'column', padding: '15px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '15px' }}>
+                                <Zap size={14} style={{ color: '#38bdf8' }} />
+                                <span style={{ fontWeight: '900', fontSize: '0.7rem', color: '#fff', letterSpacing: '0.05em' }}>PANTALLA DE RESULTADOS</span>
                             </div>
 
-                            {!selectedModelId ? (
-                                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
-                                    <Database size={48} style={{ color: 'rgba(14, 165, 233, 0.1)', marginBottom: '15px' }} />
-                                    <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: '0.75rem', lineHeight: '1.4' }}>
-                                        No hay un modelo activo.<br/>
-                                        Cargue un JSON en la barra lateral para habilitar predicciones.
-                                    </p>
-                                </div>
-                            ) : (
-                                <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-                                    {/* Cabecera del modelo */}
-                                    <div style={{ background: 'rgba(0,0,0,0.2)', padding: '15px', borderRadius: '12px', marginBottom: '20px' }}>
-                                        <div style={{ fontSize: '0.6rem', color: '#38bdf8', fontWeight: '800', marginBottom: '4px' }}>PRODUCTO</div>
-                                        <div style={{ fontSize: '1.1rem', fontWeight: '900', color: '#fff' }}>{models.find(m => m.id === selectedModelId)?.product}</div>
+                            <div className="ind-inset" style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '15px' }}>
+                                {!selectedModelId ? (
+                                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
+                                        <Database size={32} style={{ color: 'rgba(56, 189, 248, 0.1)', marginBottom: '8px' }} />
+                                        <p style={{ color: 'rgba(255,255,255,0.15)', fontSize: '0.6rem', fontWeight: '900' }}>SELECCIONE MODELO</p>
                                     </div>
+                                ) : (
+                                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                                        {/* Cabecera del Producto */}
+                                        <div style={{ paddingBottom: '12px', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <div>
+                                                <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: '800', letterSpacing: '0.05em' }}>MUESTRA SELECCIONADA</div>
+                                                <div style={{ fontSize: '1.2rem', fontWeight: '950', color: '#fff', letterSpacing: '-0.02em' }}>{models.find(m => m.id === selectedModelId)?.product}</div>
+                                            </div>
+                                            <ChevronDown size={20} style={{ color: '#64748b' }} />
+                                        </div>
 
-                                    {/* Área de valor principal */}
-                                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
-                                        {isPredicting ? (
-                                            <div style={{ textAlign: 'center' }}>
-                                                <div className="processing-loader" style={{ 
-                                                    width: '60px', 
-                                                    height: '60px', 
-                                                    border: '3px solid rgba(14, 165, 233, 0.1)', 
-                                                    borderTopColor: '#0ea5e9',
-                                                    borderRadius: '50%',
-                                                    animation: 'spin 1s linear infinite',
-                                                    margin: '0 auto 15px'
-                                                }}></div>
-                                                <div style={{ fontSize: '0.65rem', color: '#0ea5e9', fontWeight: '700', letterSpacing: '0.1em' }}>ANALIZANDO...</div>
-                                                <div style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.4)', marginTop: '4px' }}>Procesando Quimiometría PLS</div>
-                                            </div>
-                                        ) : predictionResult ? (
-                                            <div style={{ width: '100%', textAlign: 'center' }}>
-                                                <div style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)', marginBottom: '10px' }}>{predictionResult.property.toUpperCase()}</div>
-                                                <div style={{ 
-                                                    fontSize: '4.5rem', 
-                                                    fontWeight: '950', 
-                                                    color: '#fff', 
-                                                    lineHeight: '1',
-                                                    textShadow: '0 0 30px rgba(14, 165, 233, 0.6), 0 0 60px rgba(14, 165, 233, 0.2)',
-                                                    filter: 'drop-shadow(0 0 10px rgba(255,255,255,0.2))'
-                                                }}>
-                                                    {predictionResult.value.toFixed(2)}
-                                                </div>
-                                                <div style={{ fontSize: '1.2rem', color: '#38bdf8', fontWeight: '800', marginTop: '5px' }}>{predictionResult.unit}</div>
-                                                
-                                                {/* Indicador de GH (Distancia Mahalanobis) */}
-                                                {predictionResult.gh !== undefined && (
-                                                    <div style={{ 
-                                                        marginTop: '15px', 
-                                                        padding: '4px 10px', 
-                                                        background: predictionResult.gh > 3 ? 'rgba(249, 115, 22, 0.1)' : 'rgba(16, 185, 129, 0.1)', 
-                                                        borderRadius: '20px',
-                                                        display: 'inline-flex',
-                                                        alignItems: 'center',
-                                                        gap: '6px',
-                                                        border: `1px solid ${predictionResult.gh > 3 ? 'rgba(249, 115, 22, 0.3)' : 'rgba(16, 185, 129, 0.3)'}`
-                                                    }}>
-                                                        <span style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.5)', fontWeight: '700' }}>DISTANCIA GH:</span>
-                                                        <span style={{ 
-                                                            fontSize: '0.75rem', 
-                                                            fontWeight: '900', 
-                                                            color: predictionResult.gh > 3 ? '#fb923c' : '#4ade80' 
-                                                        }}>
-                                                            {predictionResult.gh.toFixed(2)}
-                                                        </span>
+                                        <div className="result-display" style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: '180px', position: 'relative' }}>
+                                            {isPredicting ? (
+                                                <div className="blink" style={{ fontSize: '0.8rem', color: '#00d2ff', fontWeight: '900', letterSpacing: '0.15em' }}>ANALIZANDO...</div>
+                                            ) : predictionResult ? (
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '20px', justifyContent: 'center' }}>
+                                                    <div style={{ padding: '15px', background: 'rgba(56, 189, 248, 0.1)', borderRadius: '15px', border: '1px solid rgba(56, 189, 248, 0.2)' }}>
+                                                        <Activity size={32} style={{ color: '#38bdf8' }} />
                                                     </div>
-                                                )}
-                                            </div>
-                                        ) : (
-                                            <div style={{ textAlign: 'center' }}>
-                                                <div style={{ 
-                                                    width: '80px', 
-                                                    height: '80px', 
-                                                    border: '2px dashed rgba(56, 189, 248, 0.2)', 
-                                                    borderRadius: '50%',
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'center',
-                                                    margin: '0 auto 20px'
-                                                }}>
-                                                    <span className="scan-anim" style={{ width: '40px', height: '2px', background: '#38bdf8', borderRadius: '2px', animation: 'scanLine 2s infinite' }}></span>
+                                                    <div style={{ textAlign: 'left' }}>
+                                                        <div className="result-val" style={{ display: 'flex', alignItems: 'baseline' }}>
+                                                            {predictionResult.value.toFixed(1)}
+                                                            <span style={{ fontSize: '1.5rem', marginLeft: '4px', color: 'rgba(255,255,255,0.6)' }}>%</span>
+                                                        </div>
+                                                        <div style={{ fontSize: '1.1rem', color: '#fff', fontWeight: '800', opacity: 0.9, marginTop: '-5px' }}>{predictionResult.property}</div>
+                                                    </div>
                                                 </div>
-                                                <span style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)', fontWeight: '600' }}>ESPERANDO ESCANEO...</span>
+                                            ) : (
+                                                <div style={{ opacity: 0.1, fontSize: '2rem', fontWeight: '950', letterSpacing: '0.2em' }}>ESPERANDO</div>
+                                            )}
+                                        </div>
+
+                                        {/* Parámetros Secundarios (Estilo Imagen) */}
+                                        {predictionResult && (
+                                            <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: '10px', paddingTop: '15px', borderTop: '1px solid rgba(14, 165, 233, 0.1)' }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: '#94a3b8', fontWeight: '800', paddingBottom: '5px' }}>
+                                                    <span>PARÁMETRO</span>
+                                                    <span>VALOR</span>
+                                                </div>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                    <span style={{ fontSize: '0.85rem', color: '#e2e8f0', fontWeight: '600' }}>Matches</span>
+                                                    <span style={{ fontSize: '0.85rem', color: '#00d2ff', fontWeight: '800' }}>99%</span>
+                                                </div>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                    <span style={{ fontSize: '0.85rem', color: '#e2e8f0', fontWeight: '600' }}>Confianza (GH)</span>
+                                                    <span style={{ fontSize: '0.85rem', color: predictionResult.gh > 3 ? '#fb923c' : '#4ade80', fontWeight: '800' }}>
+                                                        {predictionResult.gh?.toFixed(2) || 'N/A'}
+                                                    </span>
+                                                </div>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                    <span style={{ fontSize: '0.85rem', color: '#e2e8f0', fontWeight: '600' }}>Estado</span>
+                                                    <span style={{ fontSize: '0.75rem', padding: '2px 8px', background: predictionResult.gh > 3 ? 'rgba(249, 115, 22, 0.1)' : 'rgba(74, 222, 128, 0.1)', color: predictionResult.gh > 3 ? '#fb923c' : '#4ade80', borderRadius: '4px', border: '1px solid currentColor', fontWeight: '900' }}>
+                                                        {predictionResult.gh > 3 ? 'OUTLIER' : 'OK'}
+                                                    </span>
+                                                </div>
                                             </div>
                                         )}
                                     </div>
-
-                                    {/* Info técnica pie */}
-                                    <div style={{ marginTop: 'auto', background: 'rgba(255,255,255,0.03)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                                            <span style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.3)' }}>ALGORITMO</span>
-                                            <span style={{ fontSize: '0.6rem', color: '#fff', fontWeight: '700' }}>PLS REGRESSION</span>
-                                        </div>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                                            <span style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.3)' }}>ESTADO MUESTRA</span>
-                                            <span style={{ 
-                                                fontSize: '0.6rem', 
-                                                color: (predictionResult?.gh && predictionResult.gh > 3) ? '#fb923c' : '#4ade80', 
-                                                fontWeight: '800' 
-                                            }}>
-                                                {(predictionResult?.gh && predictionResult.gh > 3) ? 'FUERA DE RANGO / OUTLIER' : 'DENTRO DE RANGO'}
-                                            </span>
-                                        </div>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                            <span style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.3)' }}>FECHA MODELO</span>
-                                            <span style={{ fontSize: '0.6rem', color: '#fff', fontWeight: '700' }}>{new Date(models.find(m => m.id === selectedModelId)?.json.date).toLocaleDateString()}</span>
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
+                                )}
+                            </div>
                         </div>
                     </div>
                 </main>
@@ -2574,7 +2416,7 @@ export default function App() {
                     </p>
                     <input id="uuidModalInput" type="text" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" style={{ background: '#1e293b', border: '1px solid #334155', color: '#f1f5f9', outline: 'none' }}/>
                     <div className="modal-btns">
-                        <button className="btn" id="btnUUIDOk" style={{ background: 'linear-gradient(135deg, #38bdf8 0%, #0284c7 100%)', color: '#fff' }}>Confirmar y Reconectar</button>
+                        <button className="btn" id="btnUUIDOk" style={{ background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)', color: '#fff' }}>Confirmar y Reconectar</button>
                         <button className="btn btn-ghost-red" id="btnUUIDCancel">Cancelar</button>
                     </div>
                 </div>
