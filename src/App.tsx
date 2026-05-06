@@ -2044,17 +2044,15 @@ export default function App() {
                              CONECTAR MICRO-NIR
                         </button>
 
-                        <button id="btnDisc" onClick={() => window.location.reload()} style={{ 
-                            background: 'rgba(239, 68, 68, 0.1)',
-                            border: '1px solid rgba(239, 68, 68, 0.3)',
-                            color: '#ef4444',
+                        <button id="btnDisc" className="btn-action-red" onClick={() => window.location.reload()} style={{ 
+                            width: '100%',
+                            padding: '12px',
                             borderRadius: '4px',
-                            fontSize: '0.55rem',
                             fontWeight: '900',
-                            padding: '8px',
-                            textTransform: 'uppercase'
+                            fontSize: '0.65rem'
                         }}>
-                             DECONECTAR / RESET
+                             <PowerOff size={14} style={{ marginRight: '8px' }} />
+                             DESCONECTAR / RESET
                         </button>
                     </div>
 

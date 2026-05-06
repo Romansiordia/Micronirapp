@@ -172,6 +172,29 @@ header {
     background: var(--primary);
 }
 
+.btn-action-red {
+    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+    color: #fff;
+    border: 1px solid rgba(255,255,255,0.1);
+    box-shadow: 0 0 20px rgba(239, 68, 68, 0.3);
+    font-weight: 900;
+    text-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    cursor: pointer;
+}
+
+.btn-action-red:hover {
+    box-shadow: 0 0 35px rgba(239, 68, 68, 0.5);
+    transform: translateY(-2px);
+    filter: brightness(1.1);
+}
+
+.btn-action-red:active {
+    transform: translateY(1px);
+}
+
 /* ── WORKFLOW STEPS ── */
 .step-card {
     flex: 1;
