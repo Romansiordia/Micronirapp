@@ -2424,7 +2424,7 @@ export default function App() {
                         </button>
                     </div>
 
-                    <div className="dashboard-main" style={{ display: 'flex', gap: '15px', minHeight: '350px', flex: 1 }}>
+                    <div className="dashboard-main" style={{ display: 'flex', gap: '15px', minHeight: '80px', flex: 1 }}>
                         {/* LADO IZQUIERDO: ESPECTRO */}
                         <div className="ind-panel" style={{ flex: 7, display: 'flex', flexDirection: 'column', padding: '15px' }}>
                             <div className="chart-hdr" style={{ marginBottom: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -2440,7 +2440,7 @@ export default function App() {
                                     <button className="chip-btn" onClick={() => app()?.exportCSV()} style={{ border: '1px solid var(--primary)', color: 'var(--primary)', fontWeight: '900' }}>EXPORTAR CSV</button>
                                 </div>
                             </div>
-                            <div className="chart-container" style={{ flex: 1, minHeight: '240px' }}>
+                            <div className="chart-container" style={{ flex: 1, minHeight: '50px' }}>
                                 <canvas id="nirChart"></canvas>
                             </div>
                         </div>
@@ -2469,7 +2469,7 @@ export default function App() {
                                             <ChevronDown size={20} style={{ color: '#64748b' }} />
                                         </div>
 
-                                        <div className="result-display" style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: '125px', position: 'relative' }}>
+                                        <div className="result-display" style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: '30px', position: 'relative' }}>
                                             {isPredicting ? (
                                                 <div className="blink" style={{ fontSize: '0.8rem', color: '#00d2ff', fontWeight: '900', letterSpacing: '0.15em' }}>ANALIZANDO...</div>
                                             ) : predictionResult ? (
