@@ -1795,6 +1795,71 @@ export default function App() {
     const [selectedModelId, setSelectedModelId] = useState<string>(() => {
         return localStorage.getItem('mn_selected_model') || '';
     });
+    
+    // Cloud Library State
+    const [cloudUrl, setCloudUrl] = useState(() => localStorage.getItem('mn_cloud_url') || '');
+    const [cloudFolders, setCloudFolders] = useState<{name: string, id: string}[]>([]);
+    const [selectedFolder, setSelectedFolder] = useState('');
+    const [isSyncing, setIsSyncing] = useState(false);
+
+    useEffect(() => {
+        localStorage.setItem('mn_cloud_url', cloudUrl);
+    }, [cloudUrl]);
+
+    const syncLibrary = async () => {
+        if (!cloudUrl) return alert("Por favor ingresa la URL de la Aplicación Web de Google Script.");
+        setIsSyncing(true);
+        app()?.log("Sincronizando con Google Drive...", "log-sys");
+        try {
+            const response = await fetch(cloudUrl + "?action=getFolders");
+            const data = await response.json();
+            if (data.status === "success") {
+                setCloudFolders(data.folders);
+                app()?.log(`Sincronización exitosa. ${data.folders.length} materias primas encontradas.`, "log-warn");
+            } else {
+                throw new Error(data.message);
+            }
+        } catch (err: any) {
+            app()?.log("Error de sincronización: " + err.message, "log-err");
+            alert("Error al conectar con Google Drive. Verifica la URL y que el script esté publicado como 'Cualquier persona'.");
+        } finally {
+            setIsSyncing(false);
+        }
+    };
+
+    const loadFolderModels = async (folderId: string) => {
+        if (!folderId) return;
+        setSelectedFolder(folderId);
+        setIsSyncing(true);
+        app()?.log(`Cargando modelos para carpeta ID: ${folderId}...`, "log-sys");
+        try {
+            const response = await fetch(`${cloudUrl}?action=getModels&folderId=${folderId}`);
+            const data = await response.json();
+            if (data.status === "success") {
+                const newModels: PredictionModel[] = data.models.map((m: any) => ({
+                    id: crypto.randomUUID(),
+                    name: m.analyticalProperty,
+                    product: m.fileName.replace('.json', '').toUpperCase(),
+                    json: m
+                }));
+                // Limpiar modelos locales previos de la misma materia prima para evitar duplicados si se desea
+                // O simplemente agregarlos. Vamos a agregarlos.
+                setModels(prev => {
+                    // Filtrar modelos que ya existan con el mismo nombre y producto para "actualizar"
+                    const filtered = prev.filter(p => !newModels.some(n => n.product === p.product && n.name === p.name));
+                    return [...filtered, ...newModels];
+                });
+                app()?.log(`✓ ${newModels.length} modelos cargados correctamente.`, "log-warn");
+            } else {
+                throw new Error(data.message);
+            }
+        } catch (err: any) {
+            app()?.log("Error al cargar modelos: " + err.message, "log-err");
+        } finally {
+            setIsSyncing(false);
+        }
+    };
+
     const [predictionResult, setPredictionResult] = useState<PredictionResult | null>(null);
     const [isPredicting, setIsPredicting] = useState(false);
 
@@ -1912,10 +1977,89 @@ export default function App() {
 
                     <div className="ind-inset" style={{ 
                         padding: '12px',
+                        marginBottom: '15px',
+                        background: 'rgba(56, 189, 248, 0.03)',
+                        border: '1px solid rgba(56, 189, 248, 0.1)'
+                    }}>
+                        <div style={{ color: '#38bdf8', fontWeight: '900', fontSize: '0.6rem', textTransform: 'uppercase', marginBottom: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span>LIBRERÍA CLOUD (G DRIVE)</span>
+                            <div className={isSyncing ? "blink" : ""}><Activity size={10} /></div>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                            <input 
+                                type="text"
+                                value={cloudUrl}
+                                onChange={(e) => setCloudUrl(e.target.value)}
+                                placeholder="Pegar URL de Google Script..."
+                                style={{ 
+                                    flex: 1,
+                                    background: 'rgba(0,0,0,0.3)', 
+                                    color: '#fff', 
+                                    border: '1px solid rgba(14, 165, 233, 0.3)',
+                                    borderRadius: '8px',
+                                    padding: '8px',
+                                    fontSize: '0.6rem',
+                                    outline: 'none'
+                                }}
+                            />
+                            <button 
+                                onClick={syncLibrary}
+                                disabled={isSyncing}
+                                style={{ 
+                                    width: '35px', 
+                                    height: '35px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    background: 'rgba(14, 165, 233, 0.2)',
+                                    border: '1px solid rgba(14, 165, 233, 0.4)',
+                                    borderRadius: '8px',
+                                    color: '#0ea5e9',
+                                    cursor: 'pointer',
+                                    opacity: isSyncing ? 0.5 : 1
+                                }}
+                                title="Sincronizar carpetas"
+                            >
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={isSyncing ? "spin" : ""}>
+                                    <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0118.8-4.3M22 12.5a10 10 0 01-18.8 4.3"/>
+                                </svg>
+                            </button>
+                        </div>
+
+                        {cloudFolders.length > 0 && (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                <div style={{ fontSize: '0.55rem', color: 'rgba(255,255,255,0.4)', fontWeight: '800' }}>SELECCIONAR MATERIA PRIMA:</div>
+                                <select 
+                                    value={selectedFolder}
+                                    onChange={(e) => loadFolderModels(e.target.value)}
+                                    style={{ 
+                                        width: '100%',
+                                        background: 'rgba(56, 189, 248, 0.1)', 
+                                        color: '#fff', 
+                                        border: '1px solid rgba(56, 189, 248, 0.3)',
+                                        borderRadius: '8px',
+                                        padding: '8px',
+                                        fontSize: '0.7rem',
+                                        outline: 'none',
+                                        fontWeight: '700'
+                                    }}
+                                >
+                                    <option value="">— Seleccionar —</option>
+                                    {cloudFolders.map(f => (
+                                        <option key={f.id} value={f.id}>{f.name.toUpperCase()}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="ind-inset" style={{ 
+                        padding: '12px',
                         marginBottom: '15px'
                     }}>
                         <div style={{ color: '#38bdf8', fontWeight: '900', fontSize: '0.6rem', textTransform: 'uppercase', marginBottom: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <span>PRODUCTO / MODELO</span>
+                            <span>MODELOS CARGADOS (LOCAL)</span>
                             <Database size={10} />
                         </div>
                         
@@ -2057,10 +2201,9 @@ export default function App() {
                     </div>
 
                     <div className="ind-panel" style={{ 
-                        flex: 1,
+                        height: '220px',
                         display: 'flex',
                         flexDirection: 'column',
-                        minHeight: 0,
                         padding: '12px',
                         marginBottom: '15px'
                     }}>
@@ -2068,7 +2211,7 @@ export default function App() {
                             <span style={{ color: '#38bdf8', fontWeight: '900', fontSize: '0.6rem' }}>LOG DE ANALISIS</span>
                             <button onClick={() => app()?.clearHistory()} style={{ fontSize: '0.5rem', color: 'rgba(255,255,255,0.3)', fontWeight: '900' }}>LIMPIAR</button>
                         </div>
-                        <div id="historyList" className="ind-inset" style={{ flex: 1, overflowY: 'auto' }}>
+                        <div id="historyList" className="ind-inset" style={{ flex: 1, overflowY: 'auto', padding: '0px' }}>
                              <div className="dim-text" style={{fontSize:'.55rem', padding:'15px', color: 'rgba(255,255,255,0.1)', fontWeight: '900', textAlign: 'center' }}>ESPERANDO DATOS...</div>
                         </div>
                     </div>
@@ -2281,7 +2424,7 @@ export default function App() {
                         </button>
                     </div>
 
-                    <div className="dashboard-main" style={{ display: 'flex', gap: '15px', minHeight: '480px', flex: 1 }}>
+                    <div className="dashboard-main" style={{ display: 'flex', gap: '15px', minHeight: '350px', flex: 1 }}>
                         {/* LADO IZQUIERDO: ESPECTRO */}
                         <div className="ind-panel" style={{ flex: 7, display: 'flex', flexDirection: 'column', padding: '15px' }}>
                             <div className="chart-hdr" style={{ marginBottom: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -2297,7 +2440,7 @@ export default function App() {
                                     <button className="chip-btn" onClick={() => app()?.exportCSV()} style={{ border: '1px solid var(--primary)', color: 'var(--primary)', fontWeight: '900' }}>EXPORTAR CSV</button>
                                 </div>
                             </div>
-                            <div className="chart-container" style={{ flex: 1, minHeight: '350px' }}>
+                            <div className="chart-container" style={{ flex: 1, minHeight: '240px' }}>
                                 <canvas id="nirChart"></canvas>
                             </div>
                         </div>
@@ -2326,7 +2469,7 @@ export default function App() {
                                             <ChevronDown size={20} style={{ color: '#64748b' }} />
                                         </div>
 
-                                        <div className="result-display" style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: '180px', position: 'relative' }}>
+                                        <div className="result-display" style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: '125px', position: 'relative' }}>
                                             {isPredicting ? (
                                                 <div className="blink" style={{ fontSize: '0.8rem', color: '#00d2ff', fontWeight: '900', letterSpacing: '0.15em' }}>ANALIZANDO...</div>
                                             ) : predictionResult ? (
