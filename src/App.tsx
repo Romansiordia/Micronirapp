@@ -83,10 +83,10 @@ class MicroNIRApp {
         propName?: string;
     }[];
     sampleData: { id: string; name: string; lot: string };
-    onPrediction?: (res: PredictionResult | null) => void;
+    onPredictions?: (results: PredictionResult[]) => void;
     onPredictionState?: (loading: boolean) => void;
     onAbsorbanceToggle?: (active: boolean) => void;
-    currentModel: ModelJSON | null = null;
+    currentModels: ModelJSON[] = [];
 
     constructor() {
         this.STX = 0x02;
@@ -1539,11 +1539,11 @@ class MicroNIRApp {
                     });
                 }
             } else if (target === 'sample') {
-                this.log('✓ Análisis completado.', 'log-default');
+                this.log('✓ Análisis completado (Espectro guardado).', 'log-default');
                 this.sendCmdData([0x21, 0x00, 0x00], 'lamp_off');
 
-                // LÓGICA DE PREDICCIÓN CON MODELO JSON
-                if (this.currentModel && this.referenceData.dark && this.referenceData.white) {
+                // LÓGICA DE PREDICCIÓN CON MODELOS JSON
+                if (this.currentModels.length > 0 && this.referenceData.dark && this.referenceData.white) {
                     this.log('Iniciando motor de predicción...', 'log-sys');
                     const absorbanceForPrediction = spectrum.map((S, i) => {
                         const D = this.referenceData.dark![i] || 0;
@@ -1551,7 +1551,10 @@ class MicroNIRApp {
                         const R = Math.max((S - D) / (W - D <= 0 ? 1 : W - D), 0.00001);
                         return -Math.log10(R);
                     });
-                    this.performPrediction(absorbanceForPrediction);
+                    this.performPrediction(absorbanceForPrediction, true);
+                } else if (this.currentModels.length === 0) {
+                    this.log('⚠️ AVISO: Muestra capturada pero no hay MODELOS SELECCIONADOS para el cálculo porcentual.', 'log-warn');
+                    this.log('Selecciona uno o más modelos en el panel izquierdo (Modelos Cargados) para procesar esta muestra.', 'log-sys');
                 }
 
                 // Auto-descarga CSV eliminada por solicitud del usuario
@@ -1741,43 +1744,55 @@ class MicroNIRApp {
         });
     }
 
-    performPrediction(absorbance: number[]) {
+    performPrediction(absorbance: number[], isSampleScan = false) {
         try {
-            const m = this.currentModel;
-            if (!m) return;
+            const models = this.currentModels;
+            if (!models || models.length === 0) return;
             if (this.onPredictionState) this.onPredictionState(true);
             
-            this.log(`Iniciando motor de predicción para ${m.analyticalProperty}...`, 'log-sys');
+            this.log(`Iniciando motor de predicción para ${models.length} modelos...`, 'log-sys');
             
-            // Simular tiempo de procesamiento (2.5 segundos) para "sentir" el cálculo
+            // Usamos un pequeño timeout para no bloquear el hilo UI si hay muchos modelos
             setTimeout(() => {
                 try {
-                    const result = predict(absorbance, m, (msg, type) => this.log(msg, type));
-
-                    this.log(`Predicción final [${m.analyticalProperty}]: ${result.value.toFixed(4)}`, 'log-warn');
+                    const results: PredictionResult[] = [];
                     
-                    // Actualizar el registro en el historial con el resultado de la predicción
-                    if (this.history.length > 0 && this.scanTarget === 'sample') {
-                        // El último escaneo de muestra está al inicio (index 0)
+                    for (const m of models) {
+                        try {
+                            // Capturamos el log para prefijarlo con el nombre de la propiedad
+                            const res = predict(absorbance, m, (msg, type) => this.log(`[${m.analyticalProperty}] ${msg}`, type));
+                            results.push(res);
+                            this.log(`Predicción [${m.analyticalProperty}]: ${res.value.toFixed(2)} ${res.unit} (GH: ${res.gh.toFixed(2)})`, 'log-warn');
+                        } catch (err: any) {
+                            this.log(`Error en modelo ${m.analyticalProperty}: ${err.message}`, 'log-err');
+                        }
+                    }
+
+                    // Actualizar el registro en el historial
+                    if (this.history.length > 0 && isSampleScan && results.length > 0) {
                         const last: any = this.history[0];
-                        last.prediction = result.value;
-                        last.gh = result.gh;
-                        last.unit = result.unit;
-                        last.propName = result.property;
+                        // Guardamos el primer resultado como primario para la vista simplificada
+                        last.prediction = results.length === 1 ? results[0].value : undefined;
+                        last.gh = results.length === 1 ? results[0].gh : undefined;
+                        last.unit = results.length === 1 ? results[0].unit : undefined;
+                        last.propName = results.length === 1 ? results[0].property : "Análisis Múltiple";
+                        // Almacenamos el array completo para futuras consultas
+                        last.allPredictions = results;
+
                         localStorage.setItem('mn_history', JSON.stringify(this.history));
                         this.renderHistory();
                     }
 
-                    if (this.onPrediction) this.onPrediction(result);
+                    if (this.onPredictions) this.onPredictions(results);
                     if (this.onPredictionState) this.onPredictionState(false);
                 } catch (e: any) {
-                    this.log(`Error en cálculo: ${e.message}`, 'log-err');
+                    this.log(`Fallo en procesamiento de modelos: ${e.message}`, 'log-err');
                     if (this.onPredictionState) this.onPredictionState(false);
                 }
-            }, 2500); // 2.5 segundos de "pensamiento"
+            }, 100);
 
         } catch (e: any) {
-            this.log(`Error al iniciar predicción: ${e.message}`, 'log-err');
+            this.log(`Fallo al iniciar motor multi-modelo: ${e.message}`, 'log-err');
             if (this.onPredictionState) this.onPredictionState(false);
         }
     }
@@ -1792,8 +1807,9 @@ export default function App() {
         const saved = localStorage.getItem('mn_models');
         return saved ? JSON.parse(saved) : [];
     });
-    const [selectedModelId, setSelectedModelId] = useState<string>(() => {
-        return localStorage.getItem('mn_selected_model') || '';
+    const [selectedModelIds, setSelectedModelIds] = useState<string[]>(() => {
+        const saved = localStorage.getItem('mn_selected_models');
+        return saved ? JSON.parse(saved) : [];
     });
     
     // Cloud Library State
@@ -1847,8 +1863,16 @@ export default function App() {
                 setModels(prev => {
                     // Filtrar modelos que ya existan con el mismo nombre y producto para "actualizar"
                     const filtered = prev.filter(p => !newModels.some(n => n.product === p.product && n.name === p.name));
-                    return [...filtered, ...newModels];
+                    const next = [...filtered, ...newModels];
+                    return next;
                 });
+
+                // AUTO-SELECCIÓN: Activar el primer modelo de la nueva materia prima cargada
+                if (newModels.length > 0) {
+                    setSelectedModelIds([newModels[0].id]);
+                    app()?.log(`✓ Materia prima vinculada. Activo: ${newModels[0].product}`, "log-warn");
+                }
+
                 app()?.log(`✓ ${newModels.length} modelos cargados correctamente.`, "log-warn");
             } else {
                 throw new Error(data.message);
@@ -1860,7 +1884,7 @@ export default function App() {
         }
     };
 
-    const [predictionResult, setPredictionResult] = useState<PredictionResult | null>(null);
+    const [predictionResults, setPredictionResults] = useState<PredictionResult[]>([]);
     const [isPredicting, setIsPredicting] = useState(false);
 
     useEffect(() => {
@@ -1868,8 +1892,8 @@ export default function App() {
     }, [models]);
 
     useEffect(() => {
-        localStorage.setItem('mn_selected_model', selectedModelId);
-    }, [selectedModelId]);
+        localStorage.setItem('mn_selected_models', JSON.stringify(selectedModelIds));
+    }, [selectedModelIds]);
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
     const [isUartUnlocked, setIsUartUnlocked] = useState(false);
     const [showAbsorbance, setShowAbsorbance] = useState(false);
@@ -1889,8 +1913,8 @@ export default function App() {
             appRef.current.onCalibUpdate = (status) => {
                 setCalib(status);
             };
-            appRef.current.onPrediction = (res) => {
-                setPredictionResult(res);
+            appRef.current.onPredictions = (res) => {
+                setPredictionResults(res);
             };
             appRef.current.onPredictionState = (loading) => {
                 setIsPredicting(loading);
@@ -1907,10 +1931,26 @@ export default function App() {
     useEffect(() => {
         const a = app();
         if (a) {
-            const modelObj = models.find(m => m.id === selectedModelId);
-            a.currentModel = modelObj ? modelObj.json : null;
+            const selectedModels = models.filter(m => selectedModelIds.includes(m.id));
+            a.currentModels = selectedModels.map(m => m.json);
+            console.log('Modelos actualizados en app instance:', a.currentModels.length, selectedModelIds);
+            if (selectedModels.length > 0) {
+                a.log(`Modelos activos para predicción: ${selectedModels.map(m => m.product).join(', ')}`, 'log-sys');
+            } else {
+                a.log('No hay modelos seleccionados para predicción.', 'log-sys');
+            }
         }
-    }, [selectedModelId, models]);
+    }, [selectedModelIds, models]);
+
+    // Efecto de limpieza y auto-selección de modelos
+    useEffect(() => {
+        if (models.length > 0) {
+            const validIds = selectedModelIds.filter(id => models.some(m => m.id === id));
+            if (validIds.length !== selectedModelIds.length) {
+                setSelectedModelIds(validIds);
+            }
+        }
+    }, [models, selectedModelIds.length]);
 
     const app = () => appRef.current;
 
@@ -2063,44 +2103,112 @@ export default function App() {
                             <Database size={10} />
                         </div>
                         
-                        <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
-                            <select 
-                                value={selectedModelId}
-                                onChange={(e) => setSelectedModelId(e.target.value)}
-                                style={{ 
-                                    flex: 1,
-                                    background: 'rgba(0,0,0,0.3)', 
-                                    color: '#fff', 
-                                    border: '1px solid rgba(14, 165, 233, 0.3)',
-                                    borderRadius: '8px',
-                                    padding: '8px',
-                                    fontSize: '0.7rem',
-                                    outline: 'none'
-                                }}
-                            >
-                                <option value="">Sin Modelo (Solo espectro)</option>
+                        <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                            <div style={{ 
+                                flex: 1,
+                                background: 'rgba(0,0,0,0.3)', 
+                                border: '1px solid rgba(14, 165, 233, 0.3)',
+                                borderRadius: '8px',
+                                maxHeight: '150px',
+                                overflowY: 'auto',
+                                padding: '4px'
+                            }}>
+                                <div 
+                                    onClick={() => setSelectedModelIds([])}
+                                    style={{ 
+                                        padding: '6px 8px', 
+                                        fontSize: '0.65rem', 
+                                        color: selectedModelIds.length === 0 ? '#0ea5e9' : '#94a3b8',
+                                        cursor: 'pointer',
+                                        background: selectedModelIds.length === 0 ? 'rgba(14, 165, 233, 0.1)' : 'transparent',
+                                        borderRadius: '4px',
+                                        marginBottom: '2px',
+                                        fontWeight: '800'
+                                    }}
+                                >
+                                    SIN MODELO (SOLO ESPECTRO)
+                                </div>
                                 {models.map(m => (
-                                    <option key={m.id} value={m.id}>{m.product} - {m.name}</option>
+                                    <div 
+                                        key={m.id}
+                                        onClick={() => {
+                                            setSelectedModelIds(prev => 
+                                                prev.includes(m.id) 
+                                                ? prev.filter(id => id !== m.id) 
+                                                : [...prev, m.id]
+                                            );
+                                        }}
+                                        style={{ 
+                                            padding: '6px 8px', 
+                                            fontSize: '0.65rem', 
+                                            color: selectedModelIds.includes(m.id) ? '#38bdf8' : '#cbd5e1',
+                                            cursor: 'pointer',
+                                            background: selectedModelIds.includes(m.id) ? 'rgba(56, 189, 248, 0.1)' : 'transparent',
+                                            borderRadius: '4px',
+                                            marginBottom: '2px',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '6px'
+                                        }}
+                                    >
+                                        <input 
+                                            type="checkbox" 
+                                            checked={selectedModelIds.includes(m.id)} 
+                                            readOnly 
+                                            style={{ pointerEvents: 'none' }}
+                                        />
+                                        <span style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                            {m.product} - {m.name}
+                                        </span>
+                                    </div>
                                 ))}
-                            </select>
-                            <button 
-                                onClick={() => document.getElementById('modelFileInput')?.click()}
-                                style={{ 
-                                    width: '35px', 
-                                    height: '35px',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    background: 'rgba(14, 165, 233, 0.2)',
-                                    border: '1px solid rgba(14, 165, 233, 0.4)',
-                                    borderRadius: '8px',
-                                    color: '#0ea5e9',
-                                    cursor: 'pointer'
-                                }}
-                                title="Cargar nuevo modelo JSON"
-                            >
-                                <Plus size={16} />
-                            </button>
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                <button 
+                                    onClick={() => document.getElementById('modelFileInput')?.click()}
+                                    style={{ 
+                                        width: '32px', 
+                                        height: '32px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        background: 'rgba(14, 165, 233, 0.1)',
+                                        border: '1px solid rgba(14, 165, 233, 0.3)',
+                                        borderRadius: '6px',
+                                        color: '#0ea5e9',
+                                        cursor: 'pointer'
+                                    }}
+                                    title="Cargar nuevo modelo JSON"
+                                >
+                                    <Plus size={14} />
+                                </button>
+                                {selectedModelIds.length === 1 && (
+                                    <button 
+                                        onClick={() => {
+                                            if (confirm("¿Eliminar este modelo?")) {
+                                                const idToRemove = selectedModelIds[0];
+                                                setModels(prev => prev.filter(m => m.id !== idToRemove));
+                                                setSelectedModelIds([]);
+                                            }
+                                        }}
+                                        style={{ 
+                                            width: '32px', 
+                                            height: '32px',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            background: 'rgba(239, 68, 68, 0.1)',
+                                            border: '1px solid rgba(239, 68, 68, 0.3)',
+                                            borderRadius: '6px',
+                                            color: '#ef4444',
+                                            cursor: 'pointer'
+                                        }}
+                                        title="Eliminar modelo seleccionado"
+                                    >
+                                        <Trash2 size={14} />
+                                    </button>
+                                )}
+                            </div>
                             <input 
                                 id="modelFileInput" 
                                 type="file" 
@@ -2123,7 +2231,7 @@ export default function App() {
                                                     json: json
                                                 };
                                                 setModels(prev => [...prev, newModel]);
-                                                setSelectedModelId(newModel.id);
+                                                setSelectedModelIds(prev => [...prev, newModel.id]);
                                                 appRef.current?.log(`Modelo cargado: ${newModel.product} (${newModel.name})`, 'log-sys');
                                             } catch (err: any) {
                                                 alert("Error al cargar modelo: " + err.message);
@@ -2135,22 +2243,11 @@ export default function App() {
                             />
                         </div>
 
-                        {selectedModelId && (
+                        {selectedModelIds.length > 0 && (
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <div style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.4)', fontFamily: 'var(--mono)' }}>
-                                    {models.find(m => m.id === selectedModelId)?.json.modelType} | {models.find(m => m.id === selectedModelId)?.json.nComponents} LVs
+                                <div style={{ fontSize: '0.55rem', color: 'rgba(255,255,255,0.4)', fontFamily: 'var(--mono)' }}>
+                                    {selectedModelIds.length} MODELOS SELECCIONADOS
                                 </div>
-                                <button 
-                                    onClick={() => {
-                                        if (confirm("¿Eliminar este modelo?")) {
-                                            setModels(prev => prev.filter(m => m.id !== selectedModelId));
-                                            setSelectedModelId('');
-                                        }
-                                    }}
-                                    style={{ background: 'transparent', border: 'none', color: 'rgba(239, 68, 68, 0.6)', cursor: 'pointer' }}
-                                >
-                                    <Trash2 size={12} />
-                                </button>
                             </div>
                         )}
                     </div>
@@ -2394,7 +2491,7 @@ export default function App() {
                         <button id="btnAbs" className="btn-action" 
                             onClick={() => {
                                 console.log('Botón Analizar Muestra clicado');
-                                setPredictionResult(null);
+                                setPredictionResults([]);
                                 const instance = app();
                                 if (instance) {
                                     instance.log('Solicitud de análisis de muestra iniciada...', 'log-sys');
@@ -2424,97 +2521,100 @@ export default function App() {
                         </button>
                     </div>
 
-                    <div className="dashboard-main" style={{ display: 'flex', gap: '15px', minHeight: '80px', flex: 1 }}>
+                    <div className="dashboard-main" style={{ display: 'flex', gap: '15px', height: '620px', minHeight: '620px' }}>
                         {/* LADO IZQUIERDO: ESPECTRO */}
-                        <div className="ind-panel" style={{ flex: 7, display: 'flex', flexDirection: 'column', padding: '15px' }}>
+                        <div className="ind-panel" style={{ flex: 7, display: 'flex', flexDirection: 'column', padding: '15px', overflow: 'hidden' }}>
                             <div className="chart-hdr" style={{ marginBottom: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                                 <div>
-                                    <h2 style={{ fontSize: '1.4rem', fontWeight: '950', color: '#fff', letterSpacing: '-0.02em', marginBottom: '2px' }}>
-                                        {models.find(m => m.id === selectedModelId)?.product || 'Espectro NIR'}
+                                    <h2 style={{ fontSize: '1.4rem', fontWeight: '950', color: '#fff', letterSpacing: '-0.02em', marginBottom: '2px', lineHeight: 1 }}>
+                                        {selectedModelIds.length === 1 
+                                          ? models.find(m => m.id === selectedModelIds[0])?.product 
+                                          : selectedModelIds.length > 1 
+                                            ? `Multimodelo (${selectedModelIds.length})` 
+                                            : 'Espectro NIR'}
                                     </h2>
                                     <span style={{ fontSize: '0.65rem', fontWeight: '900', color: '#64748b', letterSpacing: '0.1em', textTransform: 'uppercase' }}>128 PÍXELES InGaAs — {showAbsorbance ? 'ABSORBANCIA' : 'INTENSIDAD ADC'}</span>
                                 </div>
-                                <div className="chart-btns" style={{ gap: '6px' }}>
-                                    <button className="chip-btn" onClick={() => app()?.toggleAbsorbance()}>ADC / ABSORBANCIA</button>
-                                    <button className="chip-btn" onClick={() => app()?.clearChart()}>LIMPIAR</button>
-                                    <button className="chip-btn" onClick={() => app()?.exportCSV()} style={{ border: '1px solid var(--primary)', color: 'var(--primary)', fontWeight: '900' }}>EXPORTAR CSV</button>
+                                <div className="chart-btns" style={{ gap: '8px' }}>
+                                    <button className="chip-btn" onClick={() => app()?.toggleAbsorbance()} style={{ fontSize: '0.7rem' }}>ADC / ABSORBANCIA</button>
+                                    <button className="chip-btn" onClick={() => app()?.clearChart()} style={{ fontSize: '0.7rem' }}>LIMPIAR</button>
+                                    <button className="chip-btn" onClick={() => app()?.exportCSV()} style={{ border: '1px solid var(--primary)', color: 'var(--primary)', fontWeight: '900', fontSize: '0.7rem' }}>EXPORTAR CSV</button>
                                 </div>
                             </div>
-                            <div className="chart-container" style={{ flex: 1, minHeight: '50px' }}>
+                            <div className="chart-container" style={{ flex: 1, position: 'relative' }}>
                                 <canvas id="nirChart"></canvas>
                             </div>
                         </div>
 
                         {/* LADO DERECHO: DASHBOARD DE RESULTADOS */}
-                        <div className="ind-panel" style={{ flex: 3.5, display: 'flex', flexDirection: 'column', padding: '15px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '15px' }}>
-                                <Zap size={14} style={{ color: '#38bdf8' }} />
-                                <span style={{ fontWeight: '900', fontSize: '0.7rem', color: '#fff', letterSpacing: '0.05em' }}>PANTALLA DE RESULTADOS</span>
+                        <div className="ind-panel" style={{ flex: 3.5, display: 'flex', flexDirection: 'column', padding: '12px', overflow: 'hidden' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                                <Zap size={12} style={{ color: '#38bdf8' }} />
+                                <span style={{ fontWeight: '900', fontSize: '0.65rem', color: '#fff', letterSpacing: '0.05em' }}>PANTALLA DE RESULTADOS</span>
                             </div>
 
-                            <div className="ind-inset" style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '15px' }}>
-                                {!selectedModelId ? (
+                            <div className="ind-inset" style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '10px', overflowY: 'auto' }}>
+                                {!selectedModelIds.length ? (
                                     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
                                         <Database size={32} style={{ color: 'rgba(56, 189, 248, 0.1)', marginBottom: '8px' }} />
-                                        <p style={{ color: 'rgba(255,255,255,0.15)', fontSize: '0.6rem', fontWeight: '900' }}>SELECCIONE MODELO</p>
+                                        <p style={{ color: 'rgba(255,255,255,0.15)', fontSize: '0.6rem', fontWeight: '900' }}>SELECCIONE MODELO(S)</p>
                                     </div>
                                 ) : (
-                                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
                                         {/* Cabecera del Producto */}
-                                        <div style={{ paddingBottom: '12px', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <div style={{ paddingBottom: '10px', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                             <div>
-                                                <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: '800', letterSpacing: '0.05em' }}>MUESTRA SELECCIONADA</div>
-                                                <div style={{ fontSize: '1.2rem', fontWeight: '950', color: '#fff', letterSpacing: '-0.02em' }}>{models.find(m => m.id === selectedModelId)?.product}</div>
+                                                <div style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: '800', letterSpacing: '0.05em' }}>MUESTRA(S) SELECCIONADA(S)</div>
+                                                <div style={{ fontSize: '1rem', fontWeight: '950', color: '#fff', letterSpacing: '-0.02em' }}>
+                                                    {selectedModelIds.length === 1 
+                                                        ? models.find(m => m.id === selectedModelIds[0])?.product 
+                                                        : 'ANÁLISIS MÚLTIPLE'}
+                                                </div>
                                             </div>
-                                            <ChevronDown size={20} style={{ color: '#64748b' }} />
+                                            <Activity size={16} style={{ color: '#64748b' }} />
                                         </div>
 
-                                        <div className="result-display" style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: '30px', position: 'relative' }}>
+                                        <div className="result-display" style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '10px', minHeight: '30px', position: 'relative' }}>
                                             {isPredicting ? (
-                                                <div className="blink" style={{ fontSize: '0.8rem', color: '#00d2ff', fontWeight: '900', letterSpacing: '0.15em' }}>ANALIZANDO...</div>
-                                            ) : predictionResult ? (
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '20px', justifyContent: 'center' }}>
-                                                    <div style={{ padding: '15px', background: 'rgba(56, 189, 248, 0.1)', borderRadius: '15px', border: '1px solid rgba(56, 189, 248, 0.2)' }}>
-                                                        <Activity size={32} style={{ color: '#38bdf8' }} />
-                                                    </div>
-                                                    <div style={{ textAlign: 'left' }}>
-                                                        <div className="result-val" style={{ display: 'flex', alignItems: 'baseline' }}>
-                                                            {predictionResult.value.toFixed(1)}
-                                                            <span style={{ fontSize: '1.5rem', marginLeft: '4px', color: 'rgba(255,255,255,0.6)' }}>%</span>
+                                                <div className="blink" style={{ fontSize: '0.8rem', color: '#00d2ff', fontWeight: '900', letterSpacing: '0.15em', textAlign: 'center', padding: '20px' }}>ANALIZANDO...</div>
+                                            ) : predictionResults.length > 0 ? (
+                                                predictionResults.map((res, idx) => (
+                                                    <div key={idx} style={{ 
+                                                        display: 'flex', 
+                                                        alignItems: 'center', 
+                                                        gap: '15px', 
+                                                        padding: '12px', 
+                                                        background: 'rgba(56, 189, 248, 0.05)', 
+                                                        borderRadius: '12px', 
+                                                        border: '1px solid rgba(56, 189, 248, 0.1)' 
+                                                    }}>
+                                                        <div style={{ padding: '8px', background: 'rgba(56, 189, 248, 0.1)', borderRadius: '10px' }}>
+                                                            <Activity size={18} style={{ color: '#38bdf8' }} />
                                                         </div>
-                                                        <div style={{ fontSize: '1.1rem', color: '#fff', fontWeight: '800', opacity: 0.9, marginTop: '-5px' }}>{predictionResult.property}</div>
+                                                        <div style={{ flex: 1 }}>
+                                                            <div style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: '800' }}>{res.property.toUpperCase()}</div>
+                                                            <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
+                                                                <span style={{ fontSize: '1.4rem', fontWeight: '950', color: '#fff' }}>{res.value.toFixed(1)}</span>
+                                                                <span style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.5)', fontWeight: '900' }}>%</span>
+                                                            </div>
+                                                        </div>
+                                                        <div style={{ textAlign: 'right' }}>
+                                                            <div style={{ fontSize: '0.55rem', color: '#64748b', fontWeight: '900' }}>GH: {res.gh?.toFixed(2)}</div>
+                                                            <div style={{ 
+                                                                fontSize: '0.55rem', 
+                                                                color: res.gh > 3 ? '#fb923c' : '#4ade80', 
+                                                                fontWeight: '950',
+                                                                letterSpacing: '0.05em'
+                                                            }}>
+                                                                {res.gh > 3 ? 'OUTLIER' : 'VÁLIDO'}
+                                                            </div>
+                                                        </div>
                                                     </div>
-                                                </div>
+                                                ))
                                             ) : (
-                                                <div style={{ opacity: 0.1, fontSize: '2rem', fontWeight: '950', letterSpacing: '0.2em' }}>ESPERANDO</div>
+                                                <div style={{ opacity: 0.1, fontSize: '1.5rem', fontWeight: '950', letterSpacing: '0.2em', textAlign: 'center', padding: '20px' }}>ESPERANDO</div>
                                             )}
                                         </div>
-
-                                        {/* Parámetros Secundarios (Estilo Imagen) */}
-                                        {predictionResult && (
-                                            <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: '10px', paddingTop: '15px', borderTop: '1px solid rgba(14, 165, 233, 0.1)' }}>
-                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: '#94a3b8', fontWeight: '800', paddingBottom: '5px' }}>
-                                                    <span>PARÁMETRO</span>
-                                                    <span>VALOR</span>
-                                                </div>
-                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                    <span style={{ fontSize: '0.85rem', color: '#e2e8f0', fontWeight: '600' }}>Matches</span>
-                                                    <span style={{ fontSize: '0.85rem', color: '#00d2ff', fontWeight: '800' }}>99%</span>
-                                                </div>
-                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                    <span style={{ fontSize: '0.85rem', color: '#e2e8f0', fontWeight: '600' }}>Confianza (GH)</span>
-                                                    <span style={{ fontSize: '0.85rem', color: predictionResult.gh > 3 ? '#fb923c' : '#4ade80', fontWeight: '800' }}>
-                                                        {predictionResult.gh?.toFixed(2) || 'N/A'}
-                                                    </span>
-                                                </div>
-                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                    <span style={{ fontSize: '0.85rem', color: '#e2e8f0', fontWeight: '600' }}>Estado</span>
-                                                    <span style={{ fontSize: '0.75rem', padding: '2px 8px', background: predictionResult.gh > 3 ? 'rgba(249, 115, 22, 0.1)' : 'rgba(74, 222, 128, 0.1)', color: predictionResult.gh > 3 ? '#fb923c' : '#4ade80', borderRadius: '4px', border: '1px solid currentColor', fontWeight: '900' }}>
-                                                        {predictionResult.gh > 3 ? 'OUTLIER' : 'OK'}
-                                                    </span>
-                                                </div>
-                                            </div>
-                                        )}
                                     </div>
                                 )}
                             </div>
