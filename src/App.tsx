@@ -1965,7 +1965,6 @@ export default function App() {
                     </div>
                     <div>
                         <div className="logo-text">Spectra<span>Nir</span></div>
-                        <div className="logo-sub">MicroNIR CONTROL PANEL v6.0</div>
                     </div>
                 </div>
                 <div className="hdr-right">
@@ -2533,7 +2532,7 @@ export default function App() {
                                             ? `Multimodelo (${selectedModelIds.length})` 
                                             : 'Espectro NIR'}
                                     </h2>
-                                    <span style={{ fontSize: '0.65rem', fontWeight: '900', color: '#64748b', letterSpacing: '0.1em', textTransform: 'uppercase' }}>128 PÍXELES InGaAs — {showAbsorbance ? 'ABSORBANCIA' : 'INTENSIDAD ADC'}</span>
+
                                 </div>
                                 <div className="chart-btns" style={{ gap: '8px' }}>
                                     <button className="chip-btn" onClick={() => app()?.toggleAbsorbance()} style={{ fontSize: '0.7rem' }}>ADC / ABSORBANCIA</button>
