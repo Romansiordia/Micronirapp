@@ -81,7 +81,9 @@ class MicroNIRApp {
         gh?: number;
         unit?: string;
         propName?: string;
+        allPredictions?: any[];
     }[];
+    sessionHistory: any[] = [];
     sampleData: { id: string; name: string; lot: string };
     onPredictions?: (results: PredictionResult[]) => void;
     onPredictionState?: (loading: boolean) => void;
@@ -1236,7 +1238,12 @@ class MicroNIRApp {
             time: Date.now()
         };
         this.history.unshift(scan);
-        if (this.history.length > 50) this.history.pop();
+        if (this.history.length > 100) this.history.pop();
+        
+        if (isSample) {
+            this.sessionHistory.push(scan);
+        }
+
         localStorage.setItem('mn_history', JSON.stringify(this.history));
         this.renderHistory();
     }
@@ -1250,6 +1257,7 @@ class MicroNIRApp {
     clearHistory() {
         if (!confirm('¿Borrar todo el historial?')) return;
         this.history = [];
+        this.sessionHistory = [];
         localStorage.setItem('mn_history', '[]');
         this.renderHistory();
     }
@@ -1338,7 +1346,8 @@ class MicroNIRApp {
         this.chart.data.datasets[1].data = [];
         this.chart.update();
         this.lastSpectrum = [];
-        this.log('Gráfica limpiada.', 'log-sys');
+        this.sessionHistory = [];
+        this.log('Gráfica y sesión de exportación limpiadas.', 'log-sys');
     }
 
     scanTarget: 'dark' | 'white' | 'sample' | false = false;
@@ -1615,62 +1624,114 @@ class MicroNIRApp {
     }
 
     exportCSV() {
-        if (!this.lastSpectrum.length) { this.log('Sin datos para exportar.', 'log-warn'); return; }
+        // Usar sessionHistory para exportación acumulada de la sesión
+        const samples = this.sessionHistory;
         
-        // Cabeceras: 125 Longitudes de onda con ajuste lineal exacto
-        const wavelengths = Array.from({length: 125}, (_, i) => {
-            const nm = 908.1 + (6.19435 * i);
-            return nm.toFixed(4); // 4 decimales para máxima compatibilidad
-        });
-        
-        const header = ["Sample Name", "Sample ID", "Lot/Info", ...wavelengths, "Serial Number", "User Name", "Temperature", "Integration Time (ms)", "Replicates"];
-        
-        const sampleName = this.sampleData.name || 'Muestra';
-        const sampleId = this.sampleData.id || 'N/A';
-        const lotInfo = this.sampleData.lot || 'N/A';
-
-        // Extraer valores actuales de la UI
-        const temp = document.getElementById('valTemp')?.textContent?.replace('°C', '') || "25.0";
-        const exp = document.getElementById('valExp')?.textContent?.replace(' ms', '') || "12.5";
-        
-        // Calcular absorbancia si hay referencias
-        const dataRow = this.lastSpectrum.map((S, i) => {
-            if (this.referenceData.dark && this.referenceData.white) {
-                const D = this.referenceData.dark[i] || 0;
-                const W = this.referenceData.white[i] || 1;
-                const R = Math.max((S - D) / (W - D <= 0 ? 1 : W - D), 0.0001);
-                return (-Math.log10(R)).toFixed(5);
+        if (samples.length === 0) {
+            if (!this.lastSpectrum.length) { 
+                this.log('Sin datos en la sesión para exportar.', 'log-warn'); 
+                return; 
             }
-            return S.toFixed(0); // Si no hay referencias, exportar ADC
+            // Fallback: Si no hay historial de sesión pero hay un espectro actual
+            this.log('Exportando análisis actual...', 'log-default');
+            samples.push({
+                id: this.sampleData.id || "N/A",
+                name: this.sampleData.name || "Muestra_Actual",
+                lot: this.sampleData.lot || "N/A",
+                data: [...this.lastSpectrum],
+                time: Date.now()
+            });
+        }
+
+        // Cabeceras: 125 Longitudes de onda con ajuste lineal exacto
+        const wavelengths = Array.from({length: 125}, (_, i) => (908.1 + (6.19435 * i)).toFixed(4));
+        
+        // Determinar qué propiedades predictivas existen en la sesión para añadirlas como columnas
+        const predictionProps = new Set<string>();
+        samples.forEach(s => {
+            if (s.allPredictions) {
+                s.allPredictions.forEach((p: any) => predictionProps.add(p.property));
+            } else if (s.propName && s.prediction !== undefined) {
+                predictionProps.add(s.propName);
+            }
+        });
+        const propList = Array.from(predictionProps);
+
+        const header = ["Fecha/Hora", "Muestra", "ID Muestra", "Lote/Info", ...wavelengths];
+        
+        // Añadir columnas de resultados
+        propList.forEach(prop => {
+            header.push(`Resultado: ${prop}`);
+            header.push(`GH: ${prop}`);
         });
 
-        const connectedName = this.bleDevice?.name || document.getElementById('devId')?.textContent || "M1-0000343";
-        const cleanSerial = connectedName.replace('MicroNIR ', '').replace('MN ', '').replace('FTDI VID:', 'USB-').trim();
+        header.push("Número de Serie", "Usuario", "Temperatura (°C)", "Ti (ms)", "Réplicas");
 
-        const row = [
-            sampleName,
-            sampleId,
-            lotInfo,
-            ...dataRow,
-            cleanSerial, 
-            "Spectra-Nir User",
-            temp,
-            exp,
-            "4" // Basado en el promediado multi-punto
-        ];
+        const rows = samples.map(item => {
+            const dateStr = new Date(item.time).toLocaleString();
+            
+            // Calcular absorbancia si hay referencias
+            const dataRow = item.data.map((S: number, i: number) => {
+                if (this.referenceData.dark && this.referenceData.white) {
+                    const D = this.referenceData.dark[i] || 0;
+                    const W = this.referenceData.white[i] || 1;
+                    const R = Math.max((S - D) / (W - D <= 0 ? 1 : W - D), 0.0001);
+                    return (-Math.log10(R)).toFixed(5);
+                }
+                return S.toFixed(0); 
+            });
 
-        const csvContent = [header.join(','), row.join(',')].join('\n');
+            const connectedName = this.bleDevice?.name || document.getElementById('devId')?.textContent || "M1-0000343";
+            const cleanSerial = connectedName.replace('MicroNIR ', '').replace('MN ', '').replace('FTDI VID:', 'USB-').trim();
+            const temp = document.getElementById('valTemp')?.textContent?.replace('°C', '') || "25.0";
+            const exp = document.getElementById('valExp')?.textContent?.replace(' ms', '') || "12.5";
+
+            const baseRow = [
+                `"${dateStr}"`,
+                `"${item.name}"`,
+                `"${item.id}"`,
+                `"${item.lot || 'N/A'}"`,
+                ...dataRow
+            ];
+
+            // Añadir valores de predicción
+            propList.forEach(prop => {
+                let val = "N/A";
+                let gh = "N/A";
+                if (item.allPredictions) {
+                    const pred = item.allPredictions.find((p: any) => p.property === prop);
+                    if (pred) {
+                        val = pred.value.toFixed(2);
+                        gh = pred.gh.toFixed(2);
+                    }
+                } else if (item.propName === prop && item.prediction !== undefined) {
+                    val = item.prediction.toFixed(2);
+                    gh = item.gh?.toFixed(2) || "N/A";
+                }
+                baseRow.push(val);
+                baseRow.push(gh);
+            });
+
+            // Añadir campos finales
+            baseRow.push(cleanSerial, "Spectra-Nir User", temp, exp, "4");
+
+            return baseRow.join(',');
+        });
+
+        const csvContent = [header.join(','), ...rows].join('\n');
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
         const link = document.createElement("a");
         const url = URL.createObjectURL(blob);
+        const fileName = samples.length === 1 ? `Analisis_${samples[0].name}.csv` : `Sesion_Analisis_${new Date().toISOString().slice(0,10)}.csv`;
+        
         link.setAttribute("href", url);
-        link.setAttribute("download", `Spectra-Nir_${sampleName}.csv`);
+        link.setAttribute("download", fileName);
         link.style.visibility = 'hidden';
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
         
-        this.log('✓ CSV exportado con formato compatible Viavi.', 'log-default');
+        this.log(`✓ CSV exportado (${samples.length} análisis acumulados).`, 'log-default');
     }
 
     promptSampleData(): Promise<{ id: string, name: string, lot: string } | null> {
@@ -1778,6 +1839,16 @@ class MicroNIRApp {
                         last.propName = results.length === 1 ? results[0].property : "Análisis Múltiple";
                         // Almacenamos el array completo para futuras consultas
                         last.allPredictions = results;
+
+                        // También actualizar en el historial de sesión (CSV acumulado)
+                        const sessionItem = this.sessionHistory.find(h => h.time === last.time);
+                        if (sessionItem) {
+                            sessionItem.prediction = last.prediction;
+                            sessionItem.gh = last.gh;
+                            sessionItem.unit = last.unit;
+                            sessionItem.propName = last.propName;
+                            sessionItem.allPredictions = results;
+                        }
 
                         localStorage.setItem('mn_history', JSON.stringify(this.history));
                         this.renderHistory();
