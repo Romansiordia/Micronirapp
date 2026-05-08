@@ -83,6 +83,7 @@ class MicroNIRApp {
         propName?: string;
         allPredictions?: any[];
     }[];
+    onHistoryView?: (item: any | null) => void;
     sessionHistory: any[] = [];
     biasSettings: Record<string, Record<string, { bias: number, slope: number }>> = {};
     sampleData: { id: string; name: string; lot: string };
@@ -1242,6 +1243,8 @@ class MicroNIRApp {
         this.history.unshift(scan);
         if (this.history.length > 100) this.history.pop();
         
+        if (this.onHistoryView) this.onHistoryView(null);
+
         if (isSample) {
             this.sessionHistory.push(scan);
         }
@@ -1294,7 +1297,12 @@ class MicroNIRApp {
                     <button class="h-btn-del" style="background:transparent; border:none; cursor:pointer; color:var(--red);" title="Borrar">×</button>
                 </div>
             `;
-            div.querySelector('.h-btn-view')?.addEventListener('click', () => this.updateChart(h.data, h.data.length));
+            div.querySelector('.h-btn-view')?.addEventListener('click', () => {
+                const dataToShow = h.absData || h.data;
+                const isAbs = !!h.absData;
+                this.updateChart(dataToShow, dataToShow.length, isAbs ? 'abs' : 'counts');
+                if (this.onHistoryView) this.onHistoryView(h);
+            });
             div.querySelector('.h-btn-del')?.addEventListener('click', (e) => {
                 e.stopPropagation();
                 this.deleteHistoryItem(h.id);
@@ -1303,7 +1311,7 @@ class MicroNIRApp {
         });
     }
 
-    updateChart(data: number[], pixelCount = 125) {
+    updateChart(data: number[], pixelCount = 125, forcedMode?: 'abs' | 'counts') {
         // Alineación Lineal Exacta basada en el CSV oficial M1-0000343
         // Rango: 908.1nm - 1676.2nm en 125 puntos (paso de ~6.19435nm)
         const labels = Array.from({length: pixelCount}, (_, i) => {
@@ -1313,14 +1321,16 @@ class MicroNIRApp {
         this.chart.data.labels = labels;
         this.chart.data.datasets[0].data = data;
 
+        const isAbs = forcedMode ? (forcedMode === 'abs') : this.showAbsorbance;
+
         // --- LÓGICA DE AUTO-ESCALA PARA DARK SCAN ---
-        if (this.scanTarget === 'dark' && !this.showAbsorbance) {
+        if (this.scanTarget === 'dark' && !isAbs) {
             const min = Math.min(...data);
             const max = Math.max(...data);
             const padding = (max - min) * 0.2 || 10;
             this.chart.options.scales.y.suggestedMin = Math.floor(min - padding);
             this.chart.options.scales.y.suggestedMax = Math.ceil(max + padding);
-        } else if (this.showAbsorbance) {
+        } else if (isAbs) {
             this.chart.options.scales.y.suggestedMin = -0.01;
             this.chart.options.scales.y.suggestedMax = undefined;
         } else {
@@ -1329,14 +1339,14 @@ class MicroNIRApp {
         }
 
         // --- ACTUALIZAR ETIQUETAS SEGÚN MODO ---
-        const yTitle = this.showAbsorbance ? "Absorbancia (AU)" : "Intensidad (Counts)";
+        const yTitle = isAbs ? "Absorbancia (AU)" : "Intensidad (Counts)";
         if (this.chart.options.scales.y.title) {
             this.chart.options.scales.y.title.text = yTitle;
         }
         
         // También actualizamos el tooltip
         if (this.chart.options.plugins.tooltip) {
-            const modeLabel = this.showAbsorbance ? "Abs:" : "ADC:";
+            const modeLabel = isAbs ? "Abs:" : "ADC:";
             this.chart.options.plugins.tooltip.callbacks.label = (item: any) => ` ${modeLabel} ${item.raw}`;
         }
 
@@ -1349,6 +1359,7 @@ class MicroNIRApp {
         this.chart.update();
         this.lastSpectrum = [];
         this.sessionHistory = [];
+        if (this.onHistoryView) this.onHistoryView(null);
         this.log('Gráfica y sesión de exportación limpiadas.', 'log-sys');
     }
 
@@ -1852,6 +1863,7 @@ class MicroNIRApp {
                         last.propName = results.length === 1 ? results[0].property : "Análisis Múltiple";
                         // Almacenamos el array completo para futuras consultas
                         last.allPredictions = results;
+                        last.absData = absorbance;
 
                         // También actualizar en el historial de sesión (CSV acumulado)
                         const sessionItem = this.sessionHistory.find(h => h.time === last.time);
@@ -1861,6 +1873,7 @@ class MicroNIRApp {
                             sessionItem.unit = last.unit;
                             sessionItem.propName = last.propName;
                             sessionItem.allPredictions = results;
+                            sessionItem.absData = absorbance;
                         }
 
                         localStorage.setItem('mn_history', JSON.stringify(this.history));
@@ -1999,6 +2012,7 @@ export default function App() {
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
     const [isUartUnlocked, setIsUartUnlocked] = useState(false);
     const [showAbsorbance, setShowAbsorbance] = useState(false);
+    const [viewedHistoryItem, setViewedHistoryItem] = useState<any | null>(null);
 
     const unlockUart = () => {
         const pass = window.prompt("Ingrese clave de administrador para Monitor UART:");
@@ -2023,6 +2037,9 @@ export default function App() {
             };
             appRef.current.onAbsorbanceToggle = (active) => {
                 setShowAbsorbance(active);
+            };
+            appRef.current.onHistoryView = (item) => {
+                setViewedHistoryItem(item);
             };
             appRef.current.initChart();
             appRef.current.setMode('ble');
@@ -2748,7 +2765,83 @@ export default function App() {
                             </div>
                         </div>
                     </div>
+
+                    {/* PANEL DE INSPECCIÓN DE HISTORIAL */}
+                    {viewedHistoryItem && (
+                        <div className="ind-panel" style={{ marginTop: '15px', padding: '15px', border: '1px solid #38bdf8', background: 'rgba(56, 189, 248, 0.03)', animation: 'fadeIn 0.3s ease' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                    <div style={{ padding: '8px', background: 'rgba(56, 189, 248, 0.1)', borderRadius: '8px' }}>
+                                        <Clock size={18} style={{ color: '#38bdf8' }} />
+                                    </div>
+                                    <div>
+                                    <div style={{ fontSize: '0.8rem', fontWeight: '950', color: '#fff', letterSpacing: '0.02em' }}>MODO INSPECCIÓN: ANÁLISIS HISTÓRICO</div>
+                                    <div style={{ fontSize: '0.6rem', color: '#38bdf8', fontWeight: '800' }}>{new Date(viewedHistoryItem.time).toLocaleString()}</div>
+                                    </div>
+                                </div>
+                                <button 
+                                    onClick={() => setViewedHistoryItem(null)} 
+                                    className="chip-btn" 
+                                    style={{ background: 'rgba(255,255,255,0.05)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)' }}
+                                >
+                                    CERRAR INSPECCIÓN ×
+                                </button>
+                            </div>
+
+                            <div style={{ display: 'flex', gap: '30px', flexWrap: 'wrap' }}>
+                                <div style={{ flex: 1, minWidth: '200px' }}>
+                                    <div style={{ fontSize: '0.55rem', color: '#94a3b8', fontWeight: '800', marginBottom: '8px', letterSpacing: '0.05em' }}>DATOS DE LA MUESTRA</div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', background: 'rgba(0,0,0,0.2)', padding: '12px', borderRadius: '10px' }}>
+                                        <div>
+                                            <div style={{ fontSize: '0.5rem', color: '#64748b', fontWeight: '900', marginBottom: '2px' }}>NOMBRE</div>
+                                            <div style={{ fontSize: '0.8rem', fontWeight: '900', color: '#fff' }}>{viewedHistoryItem.name}</div>
+                                        </div>
+                                        <div>
+                                            <div style={{ fontSize: '0.5rem', color: '#64748b', fontWeight: '900', marginBottom: '2px' }}>ID / LOTE</div>
+                                            <div style={{ fontSize: '0.8rem', fontWeight: '900', color: '#fff' }}>{viewedHistoryItem.id} {viewedHistoryItem.lot ? `/ ${viewedHistoryItem.lot}` : ''}</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div style={{ flex: 2, minWidth: '300px' }}>
+                                    <div style={{ fontSize: '0.55rem', color: '#94a3b8', fontWeight: '800', marginBottom: '8px', letterSpacing: '0.05em' }}>RESULTADOS DEL ANÁLISIS</div>
+                                    <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                                        {viewedHistoryItem.allPredictions ? (
+                                            viewedHistoryItem.allPredictions.map((p: any, i: number) => (
+                                                <div key={i} style={{ padding: '10px 15px', background: 'rgba(56, 189, 248, 0.05)', borderRadius: '10px', border: '1px solid rgba(56, 189, 248, 0.1)', minWidth: '120px' }}>
+                                                    <div style={{ fontSize: '0.55rem', color: '#94a3b8', fontWeight: '900' }}>{p.property.toUpperCase()}</div>
+                                                    <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
+                                                        <span style={{ fontSize: '1.1rem', fontWeight: '950', color: '#fff' }}>{p.value.toFixed(2)}</span>
+                                                        <span style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.4)', fontWeight: '900' }}>{p.unit || '%'}</span>
+                                                    </div>
+                                                    <div style={{ fontSize: '0.55rem', marginTop: '2px', fontWeight: '800', color: p.gh > 3 ? '#fb923c' : '#38bdf8' }}>
+                                                        GH: {p.gh?.toFixed(2)}
+                                                    </div>
+                                                </div>
+                                            ))
+                                        ) : viewedHistoryItem.prediction !== undefined ? (
+                                            <div style={{ padding: '10px 15px', background: 'rgba(56, 189, 248, 0.05)', borderRadius: '10px', border: '1px solid rgba(56, 189, 248, 0.1)', minWidth: '120px' }}>
+                                                <div style={{ fontSize: '0.55rem', color: '#94a3b8', fontWeight: '900' }}>{(viewedHistoryItem.propName || 'Proteína').toUpperCase()}</div>
+                                                <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
+                                                    <span style={{ fontSize: '1.1rem', fontWeight: '950', color: '#fff' }}>{viewedHistoryItem.prediction.toFixed(2)}</span>
+                                                    <span style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.4)', fontWeight: '900' }}>{viewedHistoryItem.unit || '%'}</span>
+                                                </div>
+                                                <div style={{ fontSize: '0.55rem', marginTop: '2px', fontWeight: '800', color: viewedHistoryItem.gh > 3 ? '#fb923c' : '#38bdf8' }}>
+                                                    GH: {viewedHistoryItem.gh?.toFixed(2)}
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60px', borderRadius: '10px', background: 'rgba(255,255,255,0.02)', border: '1px dashed rgba(255,255,255,0.05)' }}>
+                                                <div style={{ fontSize: '0.6rem', color: '#64748b', fontWeight: '800' }}>NO HAY RESULTADOS PREDICTIVOS EN ESTE REGISTRO</div>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </main>
+
             </div>
 
             {/* MODAL: BIAS Y SLOPE CORRECTION */}
