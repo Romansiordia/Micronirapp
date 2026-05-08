@@ -84,6 +84,7 @@ class MicroNIRApp {
         allPredictions?: any[];
     }[];
     sessionHistory: any[] = [];
+    biasSettings: Record<string, Record<string, { bias: number, slope: number }>> = {};
     sampleData: { id: string; name: string; lot: string };
     onPredictions?: (results: PredictionResult[]) => void;
     onPredictionState?: (loading: boolean) => void;
@@ -186,6 +187,7 @@ class MicroNIRApp {
         this.lampConfirmed = false;
         this.ignoreRxUntil = 0;
         this.history = JSON.parse(localStorage.getItem('mn_history') || '[]');
+        this.biasSettings = JSON.parse(localStorage.getItem('mn_bias_settings') || '{}');
   }
 
   initChart() {
@@ -1822,8 +1824,19 @@ class MicroNIRApp {
                         try {
                             // Capturamos el log para prefijarlo con el nombre de la propiedad
                             const res = predict(absorbance, m, (msg, type) => this.log(`[${m.analyticalProperty}] ${msg}`, type));
+                            
+                            // APLICAR BIAS Y SLOPE
+                            const devKey = this.getDeviceKey();
+                            const modelKey = `${devKey}_${m.product}`;
+                            const settings = this.biasSettings[modelKey]?.[m.analyticalProperty] || { bias: 0, slope: 1 };
+                            
+                            const rawValue = res.value;
+                            const correctedValue = (rawValue * settings.slope) + settings.bias;
+                            
+                            res.value = correctedValue;
+                            
                             results.push(res);
-                            this.log(`Predicción [${m.analyticalProperty}]: ${res.value.toFixed(2)} ${res.unit} (GH: ${res.gh.toFixed(2)})`, 'log-warn');
+                            this.log(`Predicción [${m.analyticalProperty}]: ${res.value.toFixed(2)} ${res.unit} (Original: ${rawValue.toFixed(2)}, Bias: ${settings.bias})`, 'log-warn');
                         } catch (err: any) {
                             this.log(`Error en modelo ${m.analyticalProperty}: ${err.message}`, 'log-err');
                         }
@@ -1869,6 +1882,19 @@ class MicroNIRApp {
     }
 
     sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
+
+    getDeviceKey() {
+        const connectedName = this.bleDevice?.name || document.getElementById('devId')?.textContent || "M1-0000343";
+        return connectedName.replace('MicroNIR ', '').replace('MN ', '').replace('FTDI VID:', 'USB-').trim();
+    }
+
+    saveBiasSettings(modelProduct: string, settings: Record<string, { bias: number, slope: number }>) {
+        const devKey = this.getDeviceKey();
+        const modelKey = `${devKey}_${modelProduct}`;
+        this.biasSettings[modelKey] = settings;
+        localStorage.setItem('mn_bias_settings', JSON.stringify(this.biasSettings));
+        this.log(`✓ Ajustes de Bias/Slope guardados para ${modelProduct} en equipo ${devKey}`, 'log-warn');
+    }
 }
 
 export default function App() {
@@ -1888,6 +1914,11 @@ export default function App() {
     const [cloudFolders, setCloudFolders] = useState<{name: string, id: string}[]>([]);
     const [selectedFolder, setSelectedFolder] = useState('');
     const [isSyncing, setIsSyncing] = useState(false);
+    
+    // Bias & Slope State
+    const [isBiasModalOpen, setIsBiasModalOpen] = useState(false);
+    const [biasTargetModel, setBiasTargetModel] = useState<PredictionModel | null>(null);
+    const [biasState, setBiasState] = useState<Record<string, { bias: number, slope: number }>>({});
 
     useEffect(() => {
         localStorage.setItem('mn_cloud_url', cloudUrl);
@@ -2318,6 +2349,33 @@ export default function App() {
                                 <div style={{ fontSize: '0.55rem', color: 'rgba(255,255,255,0.4)', fontFamily: 'var(--mono)' }}>
                                     {selectedModelIds.length} MODELOS SELECCIONADOS
                                 </div>
+                                <button 
+                                    onClick={() => {
+                                        // Tomar el primer modelo seleccionado para configurar
+                                        const mId = selectedModelIds[0];
+                                        const m = models.find(mod => mod.id === mId);
+                                        if (m) {
+                                            const devKey = app()?.getDeviceKey() || 'M1-0000343';
+                                            const modelKey = `${devKey}_${m.product}`;
+                                            const currentSettings = app()?.biasSettings[modelKey] || {};
+                                            setBiasTargetModel(m);
+                                            setBiasState(currentSettings);
+                                            setIsBiasModalOpen(true);
+                                        }
+                                    }}
+                                    style={{ 
+                                        fontSize: '0.55rem', 
+                                        color: '#0ea5e9', 
+                                        background: 'rgba(14, 165, 233, 0.1)', 
+                                        border: '1px solid rgba(14, 165, 233, 0.3)',
+                                        borderRadius: '4px',
+                                        padding: '2px 8px',
+                                        fontWeight: '900',
+                                        cursor: 'pointer'
+                                    }}
+                                >
+                                    AJUSTE BIAS/SLOPE
+                                </button>
                             </div>
                         )}
                     </div>
@@ -2692,6 +2750,99 @@ export default function App() {
                     </div>
                 </main>
             </div>
+
+            {/* MODAL: BIAS Y SLOPE CORRECTION */}
+            {isBiasModalOpen && biasTargetModel && (
+                <div style={{
+                    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+                    background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(10px)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    zIndex: 2000, padding: '20px'
+                }}>
+                    <div className="ind-panel" style={{ width: '100%', maxWidth: '400px', padding: '25px', boxShadow: '0 0 50px rgba(0,0,0,0.5)', border: '1px solid rgba(14, 165, 233, 0.4)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                            <div>
+                                <div style={{ fontSize: '1rem', fontWeight: '950', color: '#fff', letterSpacing: '-0.02em' }}>CORRECCIÓN BIAS/SLOPE</div>
+                                <div style={{ fontSize: '0.6rem', color: '#0ea5e9', fontWeight: '800' }}>MODELO: {biasTargetModel.product}</div>
+                            </div>
+                            <Activity size={24} style={{ color: '#0ea5e9', opacity: 0.5 }} />
+                        </div>
+
+                        <div className="ind-inset" style={{ padding: '15px', maxHeight: '400px', overflowY: 'auto', marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                            {/* Buscar todos los modelos que pertenecen al mismo producto */}
+                            {models.filter(m => m.product === biasTargetModel.product).map(m => {
+                                const prop = m.analyticalProperty || m.name;
+                                const settings = biasState[prop] || { bias: 0, slope: 1 };
+
+                                return (
+                                    <div key={m.id} style={{ paddingBottom: '15px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                                        <div style={{ fontSize: '0.75rem', fontWeight: '900', color: '#fff', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                            <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#0ea5e9' }}></div>
+                                            {prop.toUpperCase()}
+                                        </div>
+                                        
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                                                <label style={{ fontSize: '0.55rem', color: '#94a3b8', fontWeight: '800' }}>BIAS (SESGO)</label>
+                                                <input 
+                                                    type="number" 
+                                                    step="0.001"
+                                                    value={settings.bias}
+                                                    onChange={(e) => {
+                                                        const val = parseFloat(e.target.value);
+                                                        setBiasState(prev => ({
+                                                            ...prev,
+                                                            [prop]: { ...settings, bias: isNaN(val) ? 0 : val }
+                                                        }));
+                                                    }}
+                                                    style={{ background: '#050a14', color: '#fff', border: '1px solid rgba(14, 165, 233, 0.3)', borderRadius: '6px', padding: '8px', fontSize: '0.8rem', fontFamily: 'var(--mono)', fontWeight: '900', outline: 'none' }}
+                                                />
+                                            </div>
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                                                <label style={{ fontSize: '0.55rem', color: '#94a3b8', fontWeight: '800' }}>SLOPE (PENDIENTE)</label>
+                                                <input 
+                                                    type="number" 
+                                                    step="0.001"
+                                                    value={settings.slope}
+                                                    onChange={(e) => {
+                                                        const val = parseFloat(e.target.value);
+                                                        setBiasState(prev => ({
+                                                            ...prev,
+                                                            [prop]: { ...settings, slope: isNaN(val) ? 1 : val }
+                                                        }));
+                                                    }}
+                                                    style={{ background: '#050a14', color: '#fff', border: '1px solid rgba(14, 165, 233, 0.3)', borderRadius: '6px', padding: '8px', fontSize: '0.8rem', fontFamily: 'var(--mono)', fontWeight: '900', outline: 'none' }}
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                            <button 
+                                onClick={() => setIsBiasModalOpen(false)}
+                                style={{ padding: '12px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#94a3b8', borderRadius: '8px', fontWeight: '950', fontSize: '0.75rem', cursor: 'pointer' }}
+                            >
+                                CANCELAR
+                            </button>
+                            <button 
+                                onClick={() => {
+                                    app()?.saveBiasSettings(biasTargetModel.product, biasState);
+                                    setIsBiasModalOpen(false);
+                                }}
+                                style={{ padding: '12px', background: '#0ea5e9', border: 'none', color: '#000', borderRadius: '8px', fontWeight: '950', fontSize: '0.75rem', cursor: 'pointer', boxShadow: '0 4px 15px rgba(14, 165, 233, 0.4)' }}
+                            >
+                                GUARDAR AJUSTES
+                            </button>
+                        </div>
+                        <div style={{ marginTop: '15px', textAlign: 'center', fontSize: '0.5rem', color: 'rgba(14, 165, 233, 0.5)', fontWeight: '700' }}>
+                            EQUIPO: {app()?.getDeviceKey()} | Matriz: {biasTargetModel.product}
+                        </div>
+                    </div>
+                </div>
+            )}
 
             <div className="modal-overlay" id="sampleModal" style={{ backgroundColor: 'rgba(2, 6, 23, 0.85)', backdropFilter: 'blur(4px)' }}>
                 <div className="modal" style={{ maxWidth: '400px', backgroundColor: '#0f172a', border: '1px solid #1e293b', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)' }}>
