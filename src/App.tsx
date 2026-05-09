@@ -5,9 +5,12 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Chart, registerables } from 'chart.js';
-import { Cpu, Clock, Thermometer, Battery, Activity, Moon, Sun, Zap, Lock, Unlock, PowerOff, Database, FileJson, ChevronDown, Plus, Trash2 } from 'lucide-react';
+import { Cpu, Clock, Thermometer, Battery, Activity, Moon, Sun, Zap, Lock, Unlock, PowerOff, Database, FileJson, ChevronDown, Plus, Trash2, Printer, Settings, BarChart3, ShieldAlert, LayoutDashboard, Search, Link as LinkIcon, RefreshCw, Bluetooth, Usb, Cloud, LayoutList } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 import { PredictionModel, PredictionResult, ModelJSON } from './types';
 import { predict } from './services/chemometrics';
+import { jsPDF } from "jspdf";
+import autoTable from "jspdf-autotable";
 
 Chart.register(...registerables);
 
@@ -41,7 +44,6 @@ class MicroNIRApp {
     BLE_RX_UUIDS: string[];
     mode: string;
     connected: boolean;
-    customServiceUUID: string | null;
     bleDevice: any;
     gattServer: any;
     txChar: any;
@@ -76,6 +78,7 @@ class MicroNIRApp {
         name: string; 
         lot?: string; 
         data: number[]; 
+        absData?: number[];
         time: number;
         prediction?: number;
         gh?: number;
@@ -84,13 +87,26 @@ class MicroNIRApp {
         allPredictions?: any[];
     }[];
     onHistoryView?: (item: any | null) => void;
+    onLog?: (logs: any[]) => void;
+    logs: any[] = [];
     sessionHistory: any[] = [];
     biasSettings: Record<string, Record<string, { bias: number, slope: number }>> = {};
     sampleData: { id: string; name: string; lot: string };
     onPredictions?: (results: PredictionResult[]) => void;
     onPredictionState?: (loading: boolean) => void;
+    onScanState?: (isScanning: boolean) => void;
     onAbsorbanceToggle?: (active: boolean) => void;
+    onHistoryChange?: (history: any[]) => void;
+    onStatusUpdate?: (status: {
+        mode: string;
+        exp: number;
+        temp: number;
+        batt: string;
+        pkt: string;
+    }) => void;
+    onHwUpdate?: (hw: Record<string, boolean>) => void;
     currentModels: ModelJSON[] = [];
+    customServiceUUID: string | null = null;
 
     constructor() {
         this.STX = 0x02;
@@ -191,100 +207,155 @@ class MicroNIRApp {
         this.biasSettings = JSON.parse(localStorage.getItem('mn_bias_settings') || '{}');
   }
 
-  initChart() {
-        const ctx = (document.getElementById('nirChart') as HTMLCanvasElement).getContext('2d');
-        if (!ctx) return;
-        const labels = Array.from({length: 125}, (_, i) =>
-            (908.1 + i * 6.19435).toFixed(2)
-        );
+    initChart() {
+        const canvas = document.getElementById('nirChart') as HTMLCanvasElement;
+        if (!canvas) {
+            this.log("⚠️ Error: No se encontró 'nirChart' en el DOM", "log-err");
+            return;
+        }
 
-        this.chart = new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels,
-                datasets: [
-                    {
-                        label: 'Espectro',
-                        data: [],
-                        borderColor: '#00d2ff',
-                        borderWidth: 2,
-                        pointRadius: 0,
-                        fill: true,
-                        backgroundColor: (context: any) => {
-                            const chart = context.chart;
-                            const {ctx, chartArea} = chart;
-                            if (!chartArea) return null;
-                            const gradient = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
-                            gradient.addColorStop(0, 'rgba(0, 210, 255, 0.25)');
-                            gradient.addColorStop(1, 'rgba(0, 210, 255, 0)');
-                            return gradient;
-                        },
-                        tension: 0.35,
-                        order: 1
-                    },
-                    {
-                        label: 'Baseline',
-                        data: [],
-                        borderColor: 'rgba(255,140,66,.5)',
-                        borderWidth: 1,
-                        borderDash: [4,3],
-                        pointRadius: 0,
-                        fill: false,
-                        tension: 0.25,
-                        order: 2
-                    }
-                ]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                animation: { duration: 150 },
-                scales: {
-                    y: {
-                        grid: { color: 'rgba(255,255,255,0.03)' },
-                        ticks: { color: '#94a3b8', font: { family: 'Inter', size: 10, weight: 500 } },
-                        title: { display: true, text: 'Intensidad', color: '#00d2ff', font: { size: 11, family: 'Inter', weight: 700 } }
-                    },
-                    x: {
-                        grid: { color: 'rgba(255,255,255,0.03)' },
-                        ticks: { color: '#64748b', font: { family: 'Inter', size: 10 }, maxTicksLimit: 10 },
-                        title: { display: true, text: 'Longitud de onda (nm)', color: '#64748b', font: { size: 10, family: 'Inter', weight: 600 } }
-                    }
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+            this.log("⚠️ Error: No se pudo obtener el contexto 2D del canvas", "log-err");
+            return;
+        }
+
+        if (this.chart) {
+            this.chart.destroy();
+            this.chart = null;
+        }
+
+        this.log(`Iniciando Chart.js sobre lienzo ${canvas.clientWidth}x${canvas.clientHeight}...`, 'log-sys');
+
+        const labels = Array.from({length: 125}, (_, i) => (908.1 + i * 6.19435).toFixed(1));
+
+        try {
+            this.chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels,
+                    datasets: [
+                        {
+                            label: 'Espectro',
+                            data: new Array(125).fill(0),
+                            borderColor: '#38bdf8',
+                            borderWidth: 3,
+                            pointRadius: 0,
+                            fill: false,
+                            tension: 0.2,
+                            order: 1
+                        }
+                    ]
                 },
-                plugins: {
-                    legend: { display: false },
-                    tooltip: {
-                        backgroundColor: '#1e293b',
-                        borderColor: '#334155', borderWidth: 1,
-                        titleColor: '#38bdf8', bodyColor: '#f1f5f9',
-                        titleFont: { family: 'Share Tech Mono' },
-                        bodyFont:  { family: 'Share Tech Mono' },
-                        callbacks: {
-                            title: (items: any) => `${items[0].label} nm`,
-                            label: (item: any)  => ` Intensidad: ${item.raw}`
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: false, // Desactivar animaciones para máximo rendimiento
+                    devicePixelRatio: window.devicePixelRatio || 1,
+                    layout: {
+                        padding: { left: 10, right: 20, top: 20, bottom: 10 }
+                    },
+                    scales: {
+                        y: {
+                            display: true,
+                            min: 0,
+                            suggestedMax: 65535,
+                            grid: { 
+                                display: true,
+                                color: 'rgba(255, 255, 255, 0.05)',
+                            },
+                            ticks: { 
+                                display: true,
+                                color: '#94a3b8', 
+                                font: { family: 'Inter', size: 9 },
+                            },
+                            border: { display: true, color: 'rgba(56, 189, 248, 0.3)' },
+                            title: { 
+                                display: true, 
+                                text: 'Intensidad / ADC', 
+                                color: '#38bdf8', 
+                                font: { size: 10, family: 'Inter', weight: 800 } 
+                            }
+                        },
+                        x: {
+                            display: true,
+                            grid: { 
+                                display: true,
+                                color: 'rgba(255, 255, 255, 0.05)',
+                            },
+                            ticks: { 
+                                display: true,
+                                color: '#94a3b8', 
+                                font: { family: 'Inter', size: 9 }, 
+                                maxTicksLimit: 10,
+                            },
+                            border: { display: true, color: 'rgba(56, 189, 248, 0.3)' },
+                            title: { 
+                                display: true, 
+                                text: 'Longitud (nm)', 
+                                color: '#94a3b8', 
+                                font: { size: 10, family: 'Inter', weight: 600 } 
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            enabled: true,
+                            backgroundColor: 'rgba(15, 23, 42, 0.9)',
+                            titleFont: { size: 11 },
+                            bodyFont: { size: 11 }
                         }
                     }
                 }
-            }
-        });
+            });
+            this.log("✓ Chart.js inicializado correctamente.", "log-sys");
+        } catch (e: any) {
+            this.log(`❌ Error crítico inicializando Chart.js: ${e.message}`, "log-err");
+        }
     }
-
     consolePaused = false;
 
     log(msg: string, type = '') {
+        const logEntry = {
+            id: Date.now() + Math.random(),
+            msg,
+            type,
+            time: new Date().toLocaleTimeString()
+        };
+        
+        this.logs.push(logEntry);
+        if (this.logs.length > 500) this.logs.shift();
+        
+        if (this.onLog) this.onLog([...this.logs]);
+
         if (this.consolePaused && type !== 'log-sys' && type !== 'log-warn') return; 
+        
+        // Mantener compatibilidad con elementos DOM directos si existen
         const el = document.getElementById('consoleLog');
-        if (!el) return;
-        const d  = document.createElement('div');
-        d.className = type;
-        d.textContent = '> ' + msg;
-        el.prepend(d);
-        while (el.children.length > 300) el.removeChild(el.lastChild);
+        if (el) {
+            const d  = document.createElement('div');
+            d.className = type;
+            d.textContent = '> ' + msg;
+            el.prepend(d);
+            while (el.children.length > 300) el.removeChild(el.lastChild);
+        }
     }
 
     setLed(id: string, state: boolean, color = 'on-green') {
+        const diagId = id.toLowerCase();
+        if (this.onHwUpdate) {
+            this.onHwUpdate({ [diagId]: state });
+        }
+
         const el = document.getElementById('led' + id);
         if (el) el.className = 'led-badge' + (state ? ' ' + color : '');
+        
+        // Sync Diagnostic Panel LEDs
+        const diagEl = document.getElementById(`diag-led-${diagId}`);
+        if (diagEl) {
+            diagEl.className = `status-led ${state ? 'led-on' : 'led-off'}`;
+        }
     }
 
     setSig(id: string, high: boolean) {
@@ -301,13 +372,23 @@ class MicroNIRApp {
 
     updateUI(on: boolean) {
         this.connected = on;
-        ['btnDisc'].forEach(id => {
+        ['btnDisc', 'btnDiscNav'].forEach(id => {
             const el = document.getElementById(id) as HTMLButtonElement;
             if (el) el.disabled = !on;
         });
         
         const valMode = document.getElementById('valMode');
         if (valMode) valMode.textContent = on ? this.mode.toUpperCase() : '—';
+
+        if (this.onStatusUpdate) {
+            this.onStatusUpdate({
+                mode: on ? this.mode.toUpperCase() : '—',
+                exp: 10.0, // Default or last known
+                temp: 33.5,
+                batt: '—',
+                pkt: '0 / 0'
+            });
+        }
     }
 
     setMode(m: string) {
@@ -435,20 +516,23 @@ class MicroNIRApp {
             ];
 
             // Inyectar custom UUID si el usuario lo puso (nRF Connect)
+            const filters: any[] = [
+                { namePrefix: 'MicroNIR' },
+                { namePrefix: 'MN' }
+            ];
+
             if (this.customServiceUUID && this.customServiceUUID.length >= 4) {
                 // Soportar tanto short decodificado como full string
                 ALL_POSSIBLE_SERVICES.push(this.customServiceUUID);
+                filters.push({ services: [this.customServiceUUID] });
                 this.log(`Agregado UUID Manual al escáner: ${this.customServiceUUID}`, 'log-sys');
             }
 
             let bleDevice = null;
             try {
-                this.log('Intentando emparejamiento con prefijo "MicroNIR"', 'log-sys');
+                this.log('Intentando emparejamiento por prefijo o servicio custom...', 'log-sys');
                 bleDevice = await (navigator as any).bluetooth.requestDevice({
-                    filters: [
-                        { namePrefix: 'MicroNIR' },
-                        { namePrefix: 'MN' }
-                    ],
+                    filters: filters,
                     optionalServices: ALL_POSSIBLE_SERVICES
                 });
             } catch (e) {
@@ -1155,6 +1239,16 @@ class MicroNIRApp {
             const t = ((payload[1]||0) | ((payload[2]||0) << 8)) / 10;
             const valTemp = document.getElementById('valTemp');
             if (valTemp) valTemp.textContent = t.toFixed(1) + ' °C';
+
+            if (this.onStatusUpdate) {
+                this.onStatusUpdate({
+                    mode: this.connected ? this.mode.toUpperCase() : '—',
+                    exp: this.HW_REPS ? this.HW_REPS : 10.0,
+                    temp: t,
+                    batt: '—',
+                    pkt: `${this.lastSpectrum.length} / ${this.pktCount}`
+                });
+            }
         } else if (cmd === 0x52) {
             this.log(`Status Report: ${Array.from(payload).map(b => b.toString(16).padStart(2,'0')).join(' ')}`, 'log-sys');
         }
@@ -1162,10 +1256,22 @@ class MicroNIRApp {
 
     updateBatteryUI(pct: number) {
         const valBat = document.getElementById('valBat');
+        const valBatHeader = document.getElementById('valBatHeader');
         const batPanel = document.getElementById('batPanel');
         const labelBat = document.getElementById('labelBat');
         
         if (valBat) valBat.textContent = pct + '';
+        if (valBatHeader) valBatHeader.textContent = pct + '%';
+        
+        if (this.onStatusUpdate) {
+            this.onStatusUpdate({
+                mode: this.connected ? this.mode.toUpperCase() : '—',
+                exp: this.HW_REPS ? this.HW_REPS : 10.0,
+                temp: 33.5, // Keep last or default if not available
+                batt: pct.toString(),
+                pkt: `${this.lastSpectrum.length} / ${this.pktCount}`
+            });
+        }
         
         if (pct < 20) {
             // RED state
@@ -1233,16 +1339,28 @@ class MicroNIRApp {
 
     saveScan(data: number[]) {
         const isSample = this.scanTarget === 'sample';
+        let absData = undefined;
+
+        if (isSample && this.referenceData.dark && this.referenceData.white) {
+            absData = data.map((S, i) => {
+                const D = this.referenceData.dark![i] || 0;
+                const W = this.referenceData.white![i] || 1;
+                const R = Math.max((S - D) / (W - D <= 0 ? 1 : W - D), 0.00001);
+                return -Math.log10(R);
+            });
+        }
+
         const scan: any = {
             id: isSample ? (this.sampleData.id || "N/A") : (Math.random() * 1000).toString(36),
             name: isSample ? (this.sampleData.name || "Muestra") : `Ref_${this.scanTarget}`,
             lot: isSample ? (this.sampleData.lot || "") : "",
             data: [...data],
+            absData: absData ? [...absData] : undefined,
             time: Date.now()
         };
         this.history.unshift(scan);
         if (this.history.length > 100) this.history.pop();
-        
+        if (this.onHistoryChange) this.onHistoryChange([...this.history]);
         if (this.onHistoryView) this.onHistoryView(null);
 
         if (isSample) {
@@ -1250,13 +1368,12 @@ class MicroNIRApp {
         }
 
         localStorage.setItem('mn_history', JSON.stringify(this.history));
-        this.renderHistory();
     }
 
     deleteHistoryItem(id: string) {
         this.history = this.history.filter(h => h.id !== id);
         localStorage.setItem('mn_history', JSON.stringify(this.history));
-        this.renderHistory();
+        if (this.onHistoryChange) this.onHistoryChange([...this.history]);
     }
 
     clearHistory() {
@@ -1264,98 +1381,86 @@ class MicroNIRApp {
         this.history = [];
         this.sessionHistory = [];
         localStorage.setItem('mn_history', '[]');
-        this.renderHistory();
+        if (this.onHistoryChange) this.onHistoryChange([]);
     }
 
     renderHistory() {
-        const container = document.getElementById('historyList');
-        if (!container) return;
-        container.innerHTML = this.history.length === 0 ? '<div class="dim-text" style="font-size:0.65rem; padding:10px;">Sin historial...</div>' : '';
-        
-        this.history.forEach(h => {
-            const div = document.createElement('div');
-            div.className = 'history-item';
-            div.innerHTML = `
-                <div class="h-info">
-                    <div class="h-name">${h.name} <span style="font-size:0.55rem; color:var(--dim)">[${h.id}]</span></div>
-                    ${h.lot ? `<div class="h-lot" style="font-size:0.6rem; color:var(--orange)">Lote: ${h.lot}</div>` : ''}
-                    ${h.prediction !== undefined ? `
-                        <div class="h-res" style="margin-top:4px; padding:2px 6px; background:rgba(14,165,233,0.1); border-radius:4px; display:inline-block">
-                            <span style="font-size:0.75rem; font-weight:900; color:#fff">${h.prediction.toFixed(2)}${h.unit || ''}</span>
-                            <span style="font-size:0.55rem; color:rgba(255,255,255,0.4); margin-left:4px">${h.propName || ''}</span>
-                            ${h.gh !== undefined ? `
-                                <span style="font-size:0.6rem; margin-left:8px; font-weight:800; color:${h.gh > 3 ? '#fb923c' : '#4ade80'}">
-                                    GH: ${h.gh.toFixed(2)}
-                                </span>
-                            ` : ''}
-                        </div>
-                    ` : ''}
-                    <div class="h-date" style="margin-top:2px">${new Date(h.time).toLocaleTimeString()}</div>
-                </div>
-                <div class="h-btns" style="display:flex; gap:4px">
-                    <button class="h-btn-view" style="background:transparent; border:none; cursor:pointer;" title="Ver">👁️</button>
-                    <button class="h-btn-del" style="background:transparent; border:none; cursor:pointer; color:var(--red);" title="Borrar">×</button>
-                </div>
-            `;
-            div.querySelector('.h-btn-view')?.addEventListener('click', () => {
-                const dataToShow = h.absData || h.data;
-                const isAbs = !!h.absData;
-                this.updateChart(dataToShow, dataToShow.length, isAbs ? 'abs' : 'counts');
-                if (this.onHistoryView) this.onHistoryView(h);
-            });
-            div.querySelector('.h-btn-del')?.addEventListener('click', (e) => {
-                e.stopPropagation();
-                this.deleteHistoryItem(h.id);
-            });
-            container.appendChild(div);
-        });
+        // Deprecated - Handled by React
     }
 
     updateChart(data: number[], pixelCount = 125, forcedMode?: 'abs' | 'counts') {
-        // Alineación Lineal Exacta basada en el CSV oficial M1-0000343
-        // Rango: 908.1nm - 1676.2nm en 125 puntos (paso de ~6.19435nm)
-        const labels = Array.from({length: pixelCount}, (_, i) => {
-            const nm = 908.1 + (6.19435 * i);
-            return nm.toFixed(2);
-        });
-        this.chart.data.labels = labels;
-        this.chart.data.datasets[0].data = data;
-
-        const isAbs = forcedMode ? (forcedMode === 'abs') : this.showAbsorbance;
-
-        // --- LÓGICA DE AUTO-ESCALA PARA DARK SCAN ---
-        if (this.scanTarget === 'dark' && !isAbs) {
-            const min = Math.min(...data);
-            const max = Math.max(...data);
-            const padding = (max - min) * 0.2 || 10;
-            this.chart.options.scales.y.suggestedMin = Math.floor(min - padding);
-            this.chart.options.scales.y.suggestedMax = Math.ceil(max + padding);
-        } else if (isAbs) {
-            this.chart.options.scales.y.suggestedMin = -0.01;
-            this.chart.options.scales.y.suggestedMax = undefined;
-        } else {
-            this.chart.options.scales.y.suggestedMin = 0;
-            this.chart.options.scales.y.suggestedMax = 65535;
+        if (!data || data.length === 0) return;
+        
+        const canvas = document.getElementById('nirChart') as HTMLCanvasElement;
+        if (!canvas) {
+            console.warn("Canvas 'nirChart' not found in DOM");
+            return;
         }
 
-        // --- ACTUALIZAR ETIQUETAS SEGÚN MODO ---
-        const yTitle = isAbs ? "Absorbancia (AU)" : "Intensidad (Counts)";
-        if (this.chart.options.scales.y.title) {
-            this.chart.options.scales.y.title.text = yTitle;
+        if (!this.chart) {
+            this.initChart();
         }
         
-        // También actualizamos el tooltip
-        if (this.chart.options.plugins.tooltip) {
-            const modeLabel = isAbs ? "Abs:" : "ADC:";
-            this.chart.options.plugins.tooltip.callbacks.label = (item: any) => ` ${modeLabel} ${item.raw}`;
+        if (!this.chart) {
+            console.warn("Chart failed to initialize");
+            return;
         }
 
-        this.chart.update('none');
+        const labels = Array.from({length: pixelCount}, (_, i) => {
+            const nm = 908.1 + (6.19435 * i);
+            return nm.toFixed(1);
+        });
+        
+        try {
+            // Clean data to prevent NaN issues
+            const cleanData = data.map(v => (isNaN(v) || !isFinite(v)) ? 0 : v);
+
+            this.chart.data.labels = labels;
+            this.chart.data.datasets[0].data = cleanData;
+
+            const isAbs = forcedMode === 'abs' || (forcedMode !== 'counts' && this.showAbsorbance);
+            
+            if (this.chart.options.scales && this.chart.options.scales.y) {
+                this.chart.options.scales.y.display = true;
+                if (isAbs) {
+                    this.chart.options.scales.y.min = -0.1; // Ajuste para visibilidad de línea cero
+                    const maxVal = Math.max(...cleanData, 0.1);
+                    this.chart.options.scales.y.suggestedMax = maxVal + 0.1;
+                    if (this.chart.options.scales.y.title) {
+                        this.chart.options.scales.y.title.text = "Absorbancia (AU)";
+                    }
+                } else {
+                    this.chart.options.scales.y.min = -100; // Ajuste para visibilidad de línea cero en counts
+                    const maxVal = Math.max(...cleanData, 1000);
+                    this.chart.options.scales.y.suggestedMax = maxVal * 1.05;
+                    if (this.chart.options.scales.y.title) {
+                        this.chart.options.scales.y.title.text = "Intensidad / ADC";
+                    }
+                }
+            }
+
+            if (this.chart.options.scales && this.chart.options.scales.x) {
+                this.chart.options.scales.x.display = true;
+            }
+
+            this.chart.update('none'); // Update without animation for performance
+            
+            this.log(`📈 Gráfica actualizada (${cleanData.length} px).`, 'log-sys');
+            
+            // Critical force draw
+            this.chart.draw();
+        } catch (err: any) {
+            this.log(`❌ Error actualizando gráfica: ${err.message}`, "log-err");
+            this.initChart(); 
+        }
     }
 
     clearChart() {
+        if (!this.chart) return;
         this.chart.data.datasets[0].data = [];
-        this.chart.data.datasets[1].data = [];
+        if (this.chart.data.datasets[1]) {
+            this.chart.data.datasets[1].data = [];
+        }
         this.chart.update();
         this.lastSpectrum = [];
         this.sessionHistory = [];
@@ -1395,7 +1500,9 @@ class MicroNIRApp {
     }
 
     setDarkReference() {
+        this.log('Solicitud de Referencia Oscura recibida.', 'log-sys');
         if (!this.connected) return alert("Conecta el MicroNIR primero.");
+        if (this.onScanState) this.onScanState(true);
         this.log('═══ CALIBRACIÓN OSCURA (DARK SCAN) ═══', 'log-warn');
         this.rxBuffer = [];
         this.scanTarget = 'dark';
@@ -1409,6 +1516,7 @@ class MicroNIRApp {
 
     setWhiteReference() {
         if (!this.connected) return alert("Conecta el MicroNIR primero.");
+        if (this.onScanState) this.onScanState(true);
         this.log('═══ CALIBRACIÓN BLANCA (WHITE SCAN) ═══', 'log-warn');
         this.rxBuffer = [];
         this.scanTarget = 'white';
@@ -1428,6 +1536,8 @@ class MicroNIRApp {
 
         const data = await this.promptSampleData();
         if (!data) return; // Cancelado
+        
+        if (this.onScanState) this.onScanState(true);
         this.sampleData = data;
 
         this.log(`═══ ANALIZANDO: ${this.sampleData.name} (ID: ${this.sampleData.id}) ═══`, 'log-warn');
@@ -1456,8 +1566,31 @@ class MicroNIRApp {
         if (txt) txt.textContent = `${per}%`;
     }
 
+    private calculateDisplayData(spectrum: number[], target?: string): number[] {
+        const dark = this.referenceData.dark;
+        const white = this.referenceData.white;
+
+        if (this.showAbsorbance && dark && white) {
+            return spectrum.map((S, i) => {
+                const D = (dark && i < dark.length) ? dark[i] : 0;
+                const W = (white && i < white.length) ? white[i] : (D + 1);
+                const denom = W - D;
+                const num = S - D;
+                
+                // R = (S-D)/(W-D). Cap R <= 1.0 to prevent negative Absorbance
+                // If S > W (due to noise), R will be 1.0 -> Abs = 0
+                const R = Math.max(Math.min(num / (denom <= 0 ? 1 : denom), 1.0), 0.00001);
+                return -Math.log10(R);
+            });
+        } else if (dark) {
+            return spectrum.map((val, i) => Math.max(val - ((dark && i < dark.length) ? dark[i] : 0), 0));
+        }
+        return [...spectrum];
+    }
+
     async processSpectrum(raw: number[]) {
         if (!this.scanTarget) return;
+        const targetAtStart = this.scanTarget;
 
         try {
             if (raw.length < 256) { 
@@ -1469,6 +1602,7 @@ class MicroNIRApp {
             let saturatedCount = 0;
             const maxLen = Math.min(256, raw.length);
             for (let i = 0; i < maxLen - 1; i += 2) {
+                // RESTORED: MicroNIR uses Big Endian for 16-bit ADC values
                 const val = ((raw[i] & 0xFF) << 8) | (raw[i+1] & 0xFF);
                 if (spectrum.length < 125) {
                     spectrum.push(val);
@@ -1483,7 +1617,7 @@ class MicroNIRApp {
             if (spectrum.length === 0) return;
 
             // --- LÓGICA DE PROMEDIADO MULTI-PUNTO (4 Escaneos para Muestra) ---
-            if (this.isAveragingInProgress && this.scanTarget === 'sample') {
+            if (this.isAveragingInProgress && targetAtStart === 'sample') {
                 this.multiScanBuffer.push([...spectrum]);
                 this.updateProgress(this.multiScanBuffer.length);
                 
@@ -1515,43 +1649,33 @@ class MicroNIRApp {
             this.pktCount++;
             const valPkt = document.getElementById('valPkt');
             if (valPkt) valPkt.textContent = `${spectrum.length} / ${this.pktCount}`;
-            this.log(`Espectro Recibido (${this.HW_REPS} reps).`, 'log-sys');
             
-            let displayData = [...spectrum];
-            const target = this.scanTarget;
-
-            if (this.showAbsorbance && this.referenceData.dark && this.referenceData.white) {
-                displayData = spectrum.map((S, i) => {
-                    const D = this.referenceData.dark![i] || 0;
-                    const W = this.referenceData.white![i] || 1;
-                    const R = Math.max((S - D) / (W - D <= 0 ? 1 : W - D), 0.00001);
-                    return -Math.log10(R);
+            if (this.onStatusUpdate) {
+                this.onStatusUpdate({
+                    mode: this.connected ? this.mode.toUpperCase() : '—',
+                    exp: this.HW_REPS || 10.0,
+                    temp: 33.5, 
+                    batt: '—',
+                    pkt: `${spectrum.length} / ${this.pktCount}`
                 });
-                this.chart.options.scales.y.title = { display: true, text: 'Absorbancia (AU)' };
-            } else if (target === 'white' && this.referenceData.dark) {
-                displayData = spectrum.map((W, i) => Math.max(W - (this.referenceData.dark![i] || 0), 0));
-                this.chart.options.scales.y.title = { display: true, text: 'Intensidad Neta (White - Dark)' };
-            } else if (target === 'sample' && this.referenceData.dark) {
-                displayData = spectrum.map((S, i) => Math.max(S - (this.referenceData.dark![i] || 0), 0));
-                this.chart.options.scales.y.title = { display: true, text: 'Intensidad Neta (Raw - Dark)' };
-            } else {
-                this.chart.options.scales.y.title = { display: true, text: 'ADC (Crudo)' };
             }
+            this.log(`Espectro Recibido (${spectrum.length} px, pkt #${this.pktCount}).`, 'log-sys');
+            
+            const displayData = this.calculateDisplayData(spectrum, targetAtStart);
 
             this.updateChart(displayData, spectrum.length);
             this.saveScan(spectrum);
             
-            if (target === 'white') {
+            if (targetAtStart === 'white') {
                 this.referenceData.white = [...spectrum];
                 this.log("✓ Referencia 'WHITE' guardada.", "log-default");
-                this.sendCmdData([0x21, 0x00, 0x00], 'lamp_off');
                 if (this.onCalibUpdate) {
                     this.onCalibUpdate({ 
                         dark: !!this.referenceData.dark, 
                         white: true 
                     });
                 }
-            } else if (target === 'dark') {
+            } else if (targetAtStart === 'dark') {
                 this.referenceData.dark = [...spectrum];
                 this.log("✓ Referencia 'DARK' guardada.", "log-default");
                 if (this.onCalibUpdate) {
@@ -1560,29 +1684,28 @@ class MicroNIRApp {
                         white: !!this.referenceData.white 
                     });
                 }
-            } else if (target === 'sample') {
+            } else if (targetAtStart === 'sample') {
                 this.log('✓ Análisis completado (Espectro guardado).', 'log-default');
-                this.sendCmdData([0x21, 0x00, 0x00], 'lamp_off');
 
                 // LÓGICA DE PREDICCIÓN CON MODELOS JSON
                 if (this.currentModels.length > 0 && this.referenceData.dark && this.referenceData.white) {
                     this.log('Iniciando motor de predicción...', 'log-sys');
-                    const absorbanceForPrediction = spectrum.map((S, i) => {
-                        const D = this.referenceData.dark![i] || 0;
-                        const W = this.referenceData.white![i] || 1;
-                        const R = Math.max((S - D) / (W - D <= 0 ? 1 : W - D), 0.00001);
-                        return -Math.log10(R);
-                    });
+                    const absorbanceForPrediction = this.calculateDisplayData(spectrum);
                     this.performPrediction(absorbanceForPrediction, true);
                 } else if (this.currentModels.length === 0) {
                     this.log('⚠️ AVISO: Muestra capturada pero no hay MODELOS SELECCIONADOS para el cálculo porcentual.', 'log-warn');
                     this.log('Selecciona uno o más modelos en el panel izquierdo (Modelos Cargados) para procesar esta muestra.', 'log-sys');
                 }
-
-                // Auto-descarga CSV eliminada por solicitud del usuario
             }
+        } catch (err: any) {
+            this.log(`❌ Error crítico procesando espectro: ${err.message}`, "log-err");
         } finally {
+            if (this.onScanState) this.onScanState(false);
             if (!this.isAveragingInProgress) {
+                // Hard-off LAMP if it was a scan requiring it
+                if (targetAtStart === 'white' || targetAtStart === 'sample') {
+                    this.sendCmdData([0x21, 0x00, 0x00], 'lamp_off_final');
+                }
                 this.scanTarget = false;
                 this.updateChartStatus();
                 this.setLed('ADC', true, 'on-green');
@@ -1622,7 +1745,11 @@ class MicroNIRApp {
         if (this.onAbsorbanceToggle) this.onAbsorbanceToggle(this.showAbsorbance);
         
         this.updateChartStatus();
-        if (this.lastSpectrum.length > 0) this.updateChart(this.lastSpectrum, this.lastSpectrum.length);
+        
+        if (this.lastSpectrum.length > 0) {
+            const displayData = this.calculateDisplayData(this.lastSpectrum);
+            this.updateChart(displayData, this.lastSpectrum.length);
+        }
     }
     
     updateChartStatus() {
@@ -1683,15 +1810,17 @@ class MicroNIRApp {
         const rows = samples.map(item => {
             const dateStr = new Date(item.time).toLocaleString();
             
-            // Calcular absorbancia si hay referencias
-            const dataRow = item.data.map((S: number, i: number) => {
+            // Usamos la lógica centralizada forzando absorbancia si hay referencias
+            const wasAbs = this.showAbsorbance;
+            this.showAbsorbance = !!(this.referenceData.dark && this.referenceData.white);
+            const processedData = this.calculateDisplayData(item.data);
+            this.showAbsorbance = wasAbs; // Restaurar estado UI
+
+            const dataRow = processedData.map((val: number) => {
                 if (this.referenceData.dark && this.referenceData.white) {
-                    const D = this.referenceData.dark[i] || 0;
-                    const W = this.referenceData.white[i] || 1;
-                    const R = Math.max((S - D) / (W - D <= 0 ? 1 : W - D), 0.0001);
-                    return (-Math.log10(R)).toFixed(5);
+                    return val.toFixed(5);
                 }
-                return S.toFixed(0); 
+                return val.toFixed(0); 
             });
 
             const connectedName = this.bleDevice?.name || document.getElementById('devId')?.textContent || "M1-0000343";
@@ -1877,7 +2006,7 @@ class MicroNIRApp {
                         }
 
                         localStorage.setItem('mn_history', JSON.stringify(this.history));
-                        this.renderHistory();
+                        if (this.onHistoryChange) this.onHistoryChange([...this.history]);
                     }
 
                     if (this.onPredictions) this.onPredictions(results);
@@ -1917,16 +2046,20 @@ export default function App() {
         const saved = localStorage.getItem('mn_models');
         return saved ? JSON.parse(saved) : [];
     });
+    const [history, setHistory] = useState<any[]>([]);
     const [selectedModelIds, setSelectedModelIds] = useState<string[]>(() => {
         const saved = localStorage.getItem('mn_selected_models');
         return saved ? JSON.parse(saved) : [];
     });
+
+    const uniqueProducts = Array.from(new Set(models.map(m => m.product))).sort();
     
     // Cloud Library State
     const [cloudUrl, setCloudUrl] = useState(() => localStorage.getItem('mn_cloud_url') || '');
     const [cloudFolders, setCloudFolders] = useState<{name: string, id: string}[]>([]);
     const [selectedFolder, setSelectedFolder] = useState('');
     const [isSyncing, setIsSyncing] = useState(false);
+    const [customUuid, setCustomUuid] = useState(() => localStorage.getItem('mn_custom_uuid') || '');
     
     // Bias & Slope State
     const [isBiasModalOpen, setIsBiasModalOpen] = useState(false);
@@ -1937,12 +2070,20 @@ export default function App() {
         localStorage.setItem('mn_cloud_url', cloudUrl);
     }, [cloudUrl]);
 
+    useEffect(() => {
+        localStorage.setItem('mn_custom_uuid', customUuid);
+        if (appRef.current) {
+            appRef.current.customServiceUUID = customUuid || null;
+        }
+    }, [customUuid]);
+
     const syncLibrary = async () => {
         if (!cloudUrl) return alert("Por favor ingresa la URL de la Aplicación Web de Google Script.");
         setIsSyncing(true);
         app()?.log("Sincronizando con Google Drive...", "log-sys");
         try {
-            const response = await fetch(cloudUrl + "?action=getFolders");
+            const joinChar = cloudUrl.includes('?') ? '&' : '?';
+            const response = await fetch(cloudUrl + joinChar + "action=getFolders");
             const data = await response.json();
             if (data.status === "success") {
                 setCloudFolders(data.folders);
@@ -1960,32 +2101,34 @@ export default function App() {
 
     const loadFolderModels = async (folderId: string) => {
         if (!folderId) return;
+        const folder = cloudFolders.find(f => f.id === folderId);
+        const folderName = folder ? folder.name.toUpperCase() : 'DESCONOCIDO';
+        
         setSelectedFolder(folderId);
         setIsSyncing(true);
-        app()?.log(`Cargando modelos para carpeta ID: ${folderId}...`, "log-sys");
+        app()?.log(`Cargando modelos para ${folderName}...`, "log-sys");
         try {
-            const response = await fetch(`${cloudUrl}?action=getModels&folderId=${folderId}`);
+            const joinChar = cloudUrl.includes('?') ? '&' : '?';
+            const response = await fetch(`${cloudUrl}${joinChar}action=getModels&folderId=${folderId}`);
             const data = await response.json();
             if (data.status === "success") {
                 const newModels: PredictionModel[] = data.models.map((m: any) => ({
                     id: crypto.randomUUID(),
-                    name: m.analyticalProperty,
-                    product: m.fileName.replace('.json', '').toUpperCase(),
+                    name: m.analyticalProperty || m.fileName.replace('.json', ''),
+                    product: folderName,
                     json: m
                 }));
-                // Limpiar modelos locales previos de la misma materia prima para evitar duplicados si se desea
-                // O simplemente agregarlos. Vamos a agregarlos.
+                // Limpiar modelos locales previos de la misma materia prima para evitar duplicados
                 setModels(prev => {
-                    // Filtrar modelos que ya existan con el mismo nombre y producto para "actualizar"
                     const filtered = prev.filter(p => !newModels.some(n => n.product === p.product && n.name === p.name));
                     const next = [...filtered, ...newModels];
                     return next;
                 });
 
-                // AUTO-SELECCIÓN: Activar el primer modelo de la nueva materia prima cargada
+                // AUTO-SELECCIÓN: Activar todos los modelos de la materia prima seleccionada
                 if (newModels.length > 0) {
-                    setSelectedModelIds([newModels[0].id]);
-                    app()?.log(`✓ Materia prima vinculada. Activo: ${newModels[0].product}`, "log-warn");
+                    setSelectedModelIds(newModels.map(nm => nm.id));
+                    app()?.log(`✓ Materia prima ${folderName} vinculada con ${newModels.length} parámetros.`, "log-warn");
                 }
 
                 app()?.log(`✓ ${newModels.length} modelos cargados correctamente.`, "log-warn");
@@ -2000,7 +2143,10 @@ export default function App() {
     };
 
     const [predictionResults, setPredictionResults] = useState<PredictionResult[]>([]);
+    const [isScanning, setIsScanning] = useState(false);
     const [isPredicting, setIsPredicting] = useState(false);
+    const [activeMenu, setActiveMenu] = useState<'config' | 'analysis' | 'diag' | 'models'>('analysis');
+    const [isSidebarHovered, setIsSidebarHovered] = useState(false);
 
     useEffect(() => {
         localStorage.setItem('mn_models', JSON.stringify(models));
@@ -2013,6 +2159,85 @@ export default function App() {
     const [isUartUnlocked, setIsUartUnlocked] = useState(false);
     const [showAbsorbance, setShowAbsorbance] = useState(false);
     const [viewedHistoryItem, setViewedHistoryItem] = useState<any | null>(null);
+    const [appStatus, setAppStatus] = useState({
+        mode: '—',
+        exp: 10.0,
+        temp: 33.5,
+        batt: '—',
+        pkt: '0 / 0'
+    });
+
+    const generatePDF = (item: any) => {
+        const doc = new jsPDF();
+        
+        // Header
+        doc.setFontSize(22);
+        doc.setTextColor(14, 165, 233);
+        doc.text("Reporte de Análisis NIR", 105, 20, { align: "center" });
+        
+        doc.setFontSize(10);
+        doc.setTextColor(100);
+        doc.text(`Generado el: ${new Date().toLocaleString()}`, 105, 28, { align: "center" });
+        
+        // Device Info
+        const devKey = appRef.current?.getDeviceKey() || 'N/A';
+        doc.setFontSize(12);
+        doc.setTextColor(0);
+        doc.text("Información del Equipo", 20, 45);
+        doc.setLineWidth(0.5);
+        doc.line(20, 47, 190, 47);
+        
+        doc.setFontSize(10);
+        doc.text(`Equipo: MicroNIR ${devKey}`, 25, 55);
+        
+        // Sample Info
+        doc.setFontSize(12);
+        doc.text("Datos de la Muestra", 20, 70);
+        doc.line(20, 72, 190, 72);
+        
+        doc.setFontSize(10);
+        doc.text(`Carga / Producto: ${item.name}`, 25, 80);
+        doc.text(`ID / Lote: ${item.id} ${item.lot ? `/ ${item.lot}` : ''}`, 25, 86);
+        doc.text(`Fecha de Escaneo: ${new Date(item.time).toLocaleString()}`, 25, 92);
+        
+        // Results Table
+        doc.setFontSize(12);
+        doc.text("Resultados Analíticos", 20, 110);
+        
+        const tableRows: any[] = [];
+        if (item.allPredictions) {
+            item.allPredictions.forEach((p: any) => {
+                tableRows.push([p.property.toUpperCase(), `${p.value.toFixed(2)} ${p.unit || '%'}`, p.gh.toFixed(2), p.gh > 3 ? 'Fuera de Rango' : 'Válido']);
+            });
+        } else if (item.prediction !== undefined) {
+            tableRows.push([(item.propName || 'Proteína').toUpperCase(), `${item.prediction.toFixed(2)} ${item.unit || '%'}`, item.gh.toFixed(2), item.gh > 3 ? 'Fuera de Rango' : 'Válido']);
+        }
+        
+        autoTable(doc, {
+            startY: 115,
+            head: [['Propiedad', 'Valor', 'GH (Puntaje)', 'Estado']],
+            body: tableRows,
+            theme: 'grid',
+            headStyles: { fillColor: [14, 165, 233], textColor: [255, 255, 255], fontStyle: 'bold' },
+            styles: { fontSize: 10, cellPadding: 5 },
+            columnStyles: {
+                0: { fontStyle: 'bold' },
+                2: { halign: 'center' },
+                3: { halign: 'center' }
+            }
+        });
+        
+        // Footer
+        const finalY = (doc as any).lastAutoTable.finalY + 30;
+        if (finalY < 270) {
+            doc.setFontSize(8);
+            doc.setTextColor(150);
+            doc.text("Nota: Este análisis es una predicción basada en modelos quimiométricos NIR.", 20, finalY);
+            doc.text("Documento generado digitalmente por MicroNIR Setup Tool.", 20, finalY + 5);
+        }
+        
+        doc.save(`Reporte_NIR_${item.name}_${item.id}.pdf`);
+    };
 
     const unlockUart = () => {
         const pass = window.prompt("Ingrese clave de administrador para Monitor UART:");
@@ -2023,6 +2248,14 @@ export default function App() {
         }
     };
 
+    const [diagLogs, setDiagLogs] = useState<any[]>([]);
+    const [hwStatus, setHwStatus] = useState<Record<string, boolean>>({
+        mcu: false,
+        lamp: false,
+        adc: false,
+        pwr: false
+    });
+
     useEffect(() => {
         if (!appRef.current) {
             appRef.current = new MicroNIRApp();
@@ -2031,6 +2264,21 @@ export default function App() {
             };
             appRef.current.onPredictions = (res) => {
                 setPredictionResults(res);
+            };
+            appRef.current.onHistoryChange = (h) => {
+                setHistory(h);
+            };
+            appRef.current.onStatusUpdate = (s) => {
+                setAppStatus(s);
+            };
+            appRef.current.onScanState = (s) => {
+                setIsScanning(s);
+            };
+            appRef.current.onLog = (logs) => {
+                setDiagLogs(logs);
+            };
+            appRef.current.onHwUpdate = (hw) => {
+                setHwStatus(prev => ({ ...prev, ...hw }));
             };
             appRef.current.onPredictionState = (loading) => {
                 setIsPredicting(loading);
@@ -2045,7 +2293,24 @@ export default function App() {
             appRef.current.setMode('ble');
             appRef.current.renderHistory();
         }
+
+        // Intervalo de seguridad para asegurar que el gráfico esté inicializado
+        const chartInterval = setInterval(() => {
+            if (appRef.current && !appRef.current.chart) {
+                appRef.current.initChart();
+            }
+        }, 2000);
+
+        return () => clearInterval(chartInterval);
     }, []);
+
+    useEffect(() => {
+        if (viewedHistoryItem && appRef.current) {
+            const dataToShow = viewedHistoryItem.absData || viewedHistoryItem.data;
+            const isAbs = !!viewedHistoryItem.absData;
+            appRef.current.updateChart(dataToShow, dataToShow.length, isAbs ? 'abs' : 'counts');
+        }
+    }, [viewedHistoryItem]);
 
     useEffect(() => {
         const a = app();
@@ -2071,12 +2336,37 @@ export default function App() {
         }
     }, [models, selectedModelIds.length]);
 
+    const logEndRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        if (activeMenu === 'diag') {
+            logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        }
+    }, [diagLogs, activeMenu]);
+
+    useEffect(() => {
+        if (activeMenu === 'analysis' && appRef.current) {
+            // Increase timeout to ensure AnimatePresence has finished mounting the DOM
+            setTimeout(() => {
+                const appInstance = appRef.current;
+                if (!appInstance) return;
+                
+                appInstance.initChart();
+                if (appInstance.lastSpectrum && appInstance.lastSpectrum.length > 0) {
+                     // Re-calculate based on current view settings
+                     const displayData = (appInstance as any).calculateDisplayData(appInstance.lastSpectrum);
+                     appInstance.updateChart(displayData, appInstance.lastSpectrum.length);
+                }
+            }, 400);
+        }
+    }, [activeMenu]);
+
     const app = () => appRef.current;
 
     return (
         <>
-            <header>
-                <div className="logo">
+            <header className="ind-panel" style={{ borderBottom: '1px solid rgba(14, 165, 233, 0.2)', marginBottom: '0', borderRadius: '0' }}>
+                <div className="logo" style={{ cursor: 'pointer' }} onClick={() => setActiveMenu('analysis')}>
                     <div className="logo-icon">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--secondary)" strokeWidth="3">
                             <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
@@ -2084,510 +2374,125 @@ export default function App() {
                     </div>
                     <div>
                         <div className="logo-text">Spectra<span>Nir</span></div>
+                        <div style={{ fontSize: '0.6rem', color: '#38bdf8', fontWeight: '800', opacity: 0.6 }}>PROFESSIONAL PLATFORM</div>
                     </div>
                 </div>
-                <div className="hdr-right">
-                    <div className="conn-tabs ind-inset" style={{ padding: '4px', gap: '4px' }}>
-                        <button className="conn-tab" id="tabBLE" onClick={() => app()?.setMode('ble')} style={{ borderRadius: '4px', border: 'none' }}>
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11M12 2v20"/></svg>
-                            BLE
-                        </button>
-                        <button className="conn-tab" id="tabUSB" onClick={() => app()?.setMode('usb')} style={{ borderRadius: '4px', border: 'none' }}>
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="7" y="8" width="10" height="8" rx="1"/><path d="M12 2v6M8 22h8M12 16v6"/></svg>
-                            USB
-                        </button>
-                    </div>
-                    <div className="status-pill connected" id="statusPill" style={{ background: 'rgba(74, 222, 128, 0.1)', border: '1px solid rgba(74, 222, 128, 0.3)', padding: '6px 14px' }}>
-                        <div className="dot" style={{ backgroundColor: 'currentColor', boxShadow: '0 0 10px var(--primary)' }}></div>
-                        <span id="statusText" style={{ fontWeight: '800', letterSpacing: '0.05em' }}>CONECTADO</span>
+
+                <div className="status-compact">
+                    <div className="ind-inset" style={{ padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <div className="dot" style={{ 
+                                width: '8px', 
+                                height: '8px', 
+                                borderRadius: '50%', 
+                                backgroundColor: calib.dark && calib.white ? '#4ade80' : '#fb923c',
+                                boxShadow: calib.dark && calib.white ? '0 0 10px #4ade80' : '0 0 10px #fb923c'
+                            }}></div>
+                            <span style={{ fontSize: '0.65rem', fontWeight: '900', color: '#cbd5e1' }}>CALIBRACIÓN: {calib.dark && calib.white ? 'OK' : 'PENDIENTE'}</span>
+                        </div>
+                        <div style={{ width: '1px', height: '14px', background: 'rgba(255,255,255,0.1)' }}></div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <Battery size={14} style={{ color: '#f97316' }} />
+                            <span id="valBatHeader" style={{ fontSize: '0.65rem', fontWeight: '900', color: '#cbd5e1', fontFamily: 'var(--mono)' }}>—%</span>
+                        </div>
+                        <div style={{ width: '1px', height: '14px', background: 'rgba(255,255,255,0.1)' }}></div>
+                        <div id="statusPill" className="status-pill connected" style={{ padding: '2px 8px', border: 'none', background: 'transparent' }}>
+                             <div className="dot"></div>
+                             <span id="statusText" style={{ fontWeight: '900', fontSize: '0.65rem' }}>CONECTADO</span>
+                        </div>
                     </div>
                 </div>
             </header>
 
-            <div className={`main transition-all duration-300 relative ${isSidebarOpen ? 'sidebar-open' : 'sidebar-closed'}`} style={{ display: 'flex', flex: 1 }}>
-                <aside className="sidebar ind-panel" style={{ 
-                    position: 'relative', 
-                    zIndex: 20, 
-                    height: '100%',
-                    flexShrink: 0,
-                    width: isSidebarOpen ? '320px' : '0px',
-                    transition: 'width 0.3s ease',
-                    overflow: 'hidden'
-                }}>
-                    <div style={{ width: '320px', padding: '15px' }}>
-                    <div className="ind-inset" style={{ 
-                        marginBottom: '15px',
-                        padding: '12px'
-                    }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
-                            <div className="dot" style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#4ade80', boxShadow: '0 0 10px #4ade80' }}></div>
-                            <span style={{ fontSize: '0.65rem', fontWeight: '900', color: '#38bdf8', letterSpacing: '0.1em' }}>DIAGNÓSTICO HW</span>
-                        </div>
-                        
-                        <div className="led-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '6px' }}>
-                            <div className="led-badge" id="ledMCU" style={{ padding: '6px 2px', background: '#0a0f1a', border: '1px solid #2d3a54', color: '#94a3b8', fontSize: '0.55rem' }}><div className="d"></div>MCU</div>
-                            <div className="led-badge" id="ledLAMP" style={{ padding: '6px 2px', background: '#0a0f1a', border: '1px solid #2d3a54', color: '#94a3b8', fontSize: '0.55rem' }}><div className="d"></div>LAMP</div>
-                            <div className="led-badge" id="ledADC" style={{ padding: '6px 2px', background: '#0a0f1a', border: '1px solid #2d3a54', color: '#94a3b8', fontSize: '0.55rem' }}><div className="d"></div>ADC</div>
-                            <div className="led-badge" id="ledDTR" style={{ padding: '6px 2px', background: '#0a0f1a', border: '1px solid #2d3a54', color: '#94a3b8', fontSize: '0.55rem' }}><div className="d"></div>PWR</div>
-                        </div>
-                        <div id="devId" style={{ fontSize: '0.55rem', color: '#38bdf8', textAlign: 'center', marginTop: '10px', fontFamily: 'var(--mono)', fontWeight: '700', opacity: 0.7 }}>—</div>
-                    </div>
-
-                    <div className="ind-inset" style={{ 
-                        padding: '12px',
-                        marginBottom: '15px',
-                        background: 'rgba(56, 189, 248, 0.03)',
-                        border: '1px solid rgba(56, 189, 248, 0.1)'
-                    }}>
-                        <div style={{ color: '#38bdf8', fontWeight: '900', fontSize: '0.6rem', textTransform: 'uppercase', marginBottom: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <span>LIBRERÍA CLOUD (G DRIVE)</span>
-                            <div className={isSyncing ? "blink" : ""}><Activity size={10} /></div>
+            <div className="main-content">
+                <nav className={`sidebar-mini ${isSidebarHovered ? 'expanded' : ''}`}
+                     onMouseEnter={() => setIsSidebarHovered(true)}
+                     onMouseLeave={() => setIsSidebarHovered(false)}>
+                    
+                    <div style={{ flex: 1, width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+                        <div 
+                            className={`nav-item ${activeMenu === 'analysis' ? 'active' : ''}`}
+                            onClick={() => setActiveMenu('analysis')}
+                            title="Operaciones de Análisis"
+                        >
+                            <BarChart3 size={20} />
+                            {isSidebarHovered && <span className="nav-label">Análisis</span>}
                         </div>
 
-                        <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
-                            <input 
-                                type="text"
-                                value={cloudUrl}
-                                onChange={(e) => setCloudUrl(e.target.value)}
-                                placeholder="Pegar URL de Google Script..."
-                                style={{ 
-                                    flex: 1,
-                                    background: 'rgba(0,0,0,0.3)', 
-                                    color: '#fff', 
-                                    border: '1px solid rgba(14, 165, 233, 0.3)',
-                                    borderRadius: '8px',
-                                    padding: '8px',
-                                    fontSize: '0.6rem',
-                                    outline: 'none'
-                                }}
-                            />
-                            <button 
-                                onClick={syncLibrary}
-                                disabled={isSyncing}
-                                style={{ 
-                                    width: '35px', 
-                                    height: '35px',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    background: 'rgba(14, 165, 233, 0.2)',
-                                    border: '1px solid rgba(14, 165, 233, 0.4)',
-                                    borderRadius: '8px',
-                                    color: '#0ea5e9',
-                                    cursor: 'pointer',
-                                    opacity: isSyncing ? 0.5 : 1
-                                }}
-                                title="Sincronizar carpetas"
-                            >
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={isSyncing ? "spin" : ""}>
-                                    <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0118.8-4.3M22 12.5a10 10 0 01-18.8 4.3"/>
-                                </svg>
-                            </button>
+                        <div 
+                            className={`nav-item ${activeMenu === 'models' ? 'active' : ''}`}
+                            onClick={() => setActiveMenu('models')}
+                            title="Gestión de Modelos"
+                        >
+                            <Cloud size={20} />
+                            {isSidebarHovered && <span className="nav-label">Modelos</span>}
                         </div>
 
-                        {cloudFolders.length > 0 && (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                <div style={{ fontSize: '0.55rem', color: 'rgba(255,255,255,0.4)', fontWeight: '800' }}>SELECCIONAR MATERIA PRIMA:</div>
-                                <select 
-                                    value={selectedFolder}
-                                    onChange={(e) => loadFolderModels(e.target.value)}
-                                    style={{ 
-                                        width: '100%',
-                                        background: 'rgba(56, 189, 248, 0.1)', 
-                                        color: '#fff', 
-                                        border: '1px solid rgba(56, 189, 248, 0.3)',
-                                        borderRadius: '8px',
-                                        padding: '8px',
-                                        fontSize: '0.7rem',
-                                        outline: 'none',
-                                        fontWeight: '700'
-                                    }}
-                                >
-                                    <option value="">— Seleccionar —</option>
-                                    {cloudFolders.map(f => (
-                                        <option key={f.id} value={f.id}>{f.name.toUpperCase()}</option>
-                                    ))}
-                                </select>
-                            </div>
-                        )}
-                    </div>
-
-                    <div className="ind-inset" style={{ 
-                        padding: '12px',
-                        marginBottom: '15px'
-                    }}>
-                        <div style={{ color: '#38bdf8', fontWeight: '900', fontSize: '0.6rem', textTransform: 'uppercase', marginBottom: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <span>MODELOS CARGADOS (LOCAL)</span>
-                            <Database size={10} />
-                        </div>
-                        
-                        <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
-                            <div style={{ 
-                                flex: 1,
-                                background: 'rgba(0,0,0,0.3)', 
-                                border: '1px solid rgba(14, 165, 233, 0.3)',
-                                borderRadius: '8px',
-                                maxHeight: '150px',
-                                overflowY: 'auto',
-                                padding: '4px'
-                            }}>
-                                <div 
-                                    onClick={() => setSelectedModelIds([])}
-                                    style={{ 
-                                        padding: '6px 8px', 
-                                        fontSize: '0.65rem', 
-                                        color: selectedModelIds.length === 0 ? '#0ea5e9' : '#94a3b8',
-                                        cursor: 'pointer',
-                                        background: selectedModelIds.length === 0 ? 'rgba(14, 165, 233, 0.1)' : 'transparent',
-                                        borderRadius: '4px',
-                                        marginBottom: '2px',
-                                        fontWeight: '800'
-                                    }}
-                                >
-                                    SIN MODELO (SOLO ESPECTRO)
-                                </div>
-                                {models.map(m => (
-                                    <div 
-                                        key={m.id}
-                                        onClick={() => {
-                                            setSelectedModelIds(prev => 
-                                                prev.includes(m.id) 
-                                                ? prev.filter(id => id !== m.id) 
-                                                : [...prev, m.id]
-                                            );
-                                        }}
-                                        style={{ 
-                                            padding: '6px 8px', 
-                                            fontSize: '0.65rem', 
-                                            color: selectedModelIds.includes(m.id) ? '#38bdf8' : '#cbd5e1',
-                                            cursor: 'pointer',
-                                            background: selectedModelIds.includes(m.id) ? 'rgba(56, 189, 248, 0.1)' : 'transparent',
-                                            borderRadius: '4px',
-                                            marginBottom: '2px',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: '6px'
-                                        }}
-                                    >
-                                        <input 
-                                            type="checkbox" 
-                                            checked={selectedModelIds.includes(m.id)} 
-                                            readOnly 
-                                            style={{ pointerEvents: 'none' }}
-                                        />
-                                        <span style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                            {m.product} - {m.name}
-                                        </span>
-                                    </div>
-                                ))}
-                            </div>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                <button 
-                                    onClick={() => document.getElementById('modelFileInput')?.click()}
-                                    style={{ 
-                                        width: '32px', 
-                                        height: '32px',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        background: 'rgba(14, 165, 233, 0.1)',
-                                        border: '1px solid rgba(14, 165, 233, 0.3)',
-                                        borderRadius: '6px',
-                                        color: '#0ea5e9',
-                                        cursor: 'pointer'
-                                    }}
-                                    title="Cargar nuevo modelo JSON"
-                                >
-                                    <Plus size={14} />
-                                </button>
-                                {selectedModelIds.length === 1 && (
-                                    <button 
-                                        onClick={() => {
-                                            if (confirm("¿Eliminar este modelo?")) {
-                                                const idToRemove = selectedModelIds[0];
-                                                setModels(prev => prev.filter(m => m.id !== idToRemove));
-                                                setSelectedModelIds([]);
-                                            }
-                                        }}
-                                        style={{ 
-                                            width: '32px', 
-                                            height: '32px',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            background: 'rgba(239, 68, 68, 0.1)',
-                                            border: '1px solid rgba(239, 68, 68, 0.3)',
-                                            borderRadius: '6px',
-                                            color: '#ef4444',
-                                            cursor: 'pointer'
-                                        }}
-                                        title="Eliminar modelo seleccionado"
-                                    >
-                                        <Trash2 size={14} />
-                                    </button>
-                                )}
-                            </div>
-                            <input 
-                                id="modelFileInput" 
-                                type="file" 
-                                accept=".json" 
-                                style={{ display: 'none' }} 
-                                onChange={(e) => {
-                                    const file = e.target.files?.[0];
-                                    if (file) {
-                                        const reader = new FileReader();
-                                        reader.onload = (event) => {
-                                            try {
-                                                const json = JSON.parse(event.target?.result as string);
-                                                if (!json.modelType || !json.analyticalProperty) {
-                                                    throw new Error("El archivo no parece ser un modelo de predicción compatible.");
-                                                }
-                                                const newModel: PredictionModel = {
-                                                    id: crypto.randomUUID(),
-                                                    name: json.analyticalProperty,
-                                                    product: file.name.replace('.json', '').toUpperCase(),
-                                                    json: json
-                                                };
-                                                setModels(prev => [...prev, newModel]);
-                                                setSelectedModelIds(prev => [...prev, newModel.id]);
-                                                appRef.current?.log(`Modelo cargado: ${newModel.product} (${newModel.name})`, 'log-sys');
-                                            } catch (err: any) {
-                                                alert("Error al cargar modelo: " + err.message);
-                                            }
-                                        };
-                                        reader.readAsText(file);
-                                    }
-                                }}
-                            />
+                        <div 
+                            className={`nav-item ${activeMenu === 'config' ? 'active' : ''}`}
+                            onClick={() => setActiveMenu('config')}
+                            title="Configuración de Sistema"
+                        >
+                            <Settings size={20} />
+                            {isSidebarHovered && <span className="nav-label">Ajustes</span>}
                         </div>
 
-                        {selectedModelIds.length > 0 && (
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <div style={{ fontSize: '0.55rem', color: 'rgba(255,255,255,0.4)', fontFamily: 'var(--mono)' }}>
-                                    {selectedModelIds.length} MODELOS SELECCIONADOS
-                                </div>
-                                <button 
-                                    onClick={() => {
-                                        // Tomar el primer modelo seleccionado para configurar
-                                        const mId = selectedModelIds[0];
-                                        const m = models.find(mod => mod.id === mId);
-                                        if (m) {
-                                            const devKey = app()?.getDeviceKey() || 'M1-0000343';
-                                            const modelKey = `${devKey}_${m.product}`;
-                                            const currentSettings = app()?.biasSettings[modelKey] || {};
-                                            setBiasTargetModel(m);
-                                            setBiasState(currentSettings);
-                                            setIsBiasModalOpen(true);
-                                        }
-                                    }}
-                                    style={{ 
-                                        fontSize: '0.55rem', 
-                                        color: '#0ea5e9', 
-                                        background: 'rgba(14, 165, 233, 0.1)', 
-                                        border: '1px solid rgba(14, 165, 233, 0.3)',
-                                        borderRadius: '4px',
-                                        padding: '2px 8px',
-                                        fontWeight: '900',
-                                        cursor: 'pointer'
-                                    }}
-                                >
-                                    AJUSTE BIAS/SLOPE
-                                </button>
-                            </div>
-                        )}
-                    </div>
+                        <div 
+                            className={`nav-item ${activeMenu === 'diag' ? 'active' : ''}`}
+                            onClick={() => setActiveMenu('diag')}
+                            title="Diagnóstico y Soporte"
+                        >
+                            <ShieldAlert size={20} />
+                            {isSidebarHovered && <span className="nav-label">Diagnóstico</span>}
+                        </div>
 
-                    <div className="ind-inset" style={{ 
-                        padding: '12px',
-                        marginBottom: '15px'
-                    }}>
-                        <div style={{ color: '#38bdf8', fontWeight: '900', fontSize: '0.6rem', textTransform: 'uppercase', marginBottom: '8px' }}>UUID SERVICIO BLE</div>
-                        <input id="customUUIDInput" type="text"
-                            onInput={(e: any) => { if (appRef.current) appRef.current.customServiceUUID = e.target.value.trim().toLowerCase() || null; }}
-                            className="ind-inset"
+                        <div 
+                            id="btnDiscNav"
+                            className="nav-item"
+                            onClick={() => app()?.disconnect().then(() => window.location.reload())}
+                            title="Desconectar Dispositivo"
                             style={{ 
-                                background: '#050a14', 
-                                color: '#fff', 
-                                border: '1px solid var(--border)',
-                                width: '100%',
-                                padding: '8px',
-                                fontSize: '0.55rem',
-                                fontFamily: 'var(--mono)'
-                             } as any}
-                            placeholder="DEFAULT"
-                        />
-                    </div>
-
-                    <div id="bleSection" style={{ marginBottom: '15px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        <button className="btn-action" onClick={() => app()?.connect()} style={{ 
-                            width: '100%',
-                            padding: '12px',
-                            borderRadius: '4px',
-                            fontWeight: '900',
-                            fontSize: '0.65rem'
-                        }}>
-                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" style={{marginRight: '8px'}}><path d="M6.5 6.5l11 11M17.5 6.5l-11 11M12 2v20"/></svg>
-                             CONECTAR MICRO-NIR
-                        </button>
-
-                        <button id="btnDisc" className="btn-action-red" onClick={() => window.location.reload()} style={{ 
-                            width: '100%',
-                            padding: '12px',
-                            borderRadius: '4px',
-                            fontWeight: '900',
-                            fontSize: '0.65rem'
-                        }}>
-                             <PowerOff size={14} style={{ marginRight: '8px' }} />
-                             DESCONECTAR / RESET
-                        </button>
-                    </div>
-
-                    <div className="ind-panel" style={{ 
-                        height: '220px',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        padding: '12px',
-                        marginBottom: '15px'
-                    }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                            <span style={{ color: '#38bdf8', fontWeight: '900', fontSize: '0.6rem' }}>LOG DE ANALISIS</span>
-                            <button onClick={() => app()?.clearHistory()} style={{ fontSize: '0.5rem', color: 'rgba(255,255,255,0.3)', fontWeight: '900' }}>LIMPIAR</button>
-                        </div>
-                        <div id="historyList" className="ind-inset" style={{ flex: 1, overflowY: 'auto', padding: '0px' }}>
-                             <div className="dim-text" style={{fontSize:'.55rem', padding:'15px', color: 'rgba(255,255,255,0.1)', fontWeight: '900', textAlign: 'center' }}>ESPERANDO DATOS...</div>
+                                marginTop: '10px', 
+                                border: '1px solid rgba(239, 68, 68, 0.1)',
+                                cursor: 'pointer'
+                            }}
+                        >
+                            <PowerOff size={20} style={{ color: '#ef4444' }} />
+                            {isSidebarHovered && <span className="nav-label" style={{ color: '#ef4444', fontWeight: '950' }}>DESCONECTAR</span>}
                         </div>
                     </div>
+                </nav>
 
-                    <div className="ind-panel" style={{ marginTop: '0px' }}>
-                        <details open style={{ width: '100%' }}>
-                            <summary style={{ 
-                                padding: '8px 12px',
-                                fontSize: '0.55rem',
-                                fontWeight: '900',
-                                color: '#38bdf8',
-                                cursor: 'pointer',
-                                outline: 'none',
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                alignItems: 'center'
-                             }}>
-                                CONSOLA DE SISTEMA
-                                <Activity size={10} />
-                             </summary>
-                             <div className="ind-inset" style={{ height: '180px', padding: '8px', overflowY: 'auto' }}>
-                                <div id="consoleLog" style={{ fontSize: '0.5rem', fontFamily: 'var(--mono)', color: 'rgba(255,255,255,0.7)', lineHeight: '1.4' }}>
-                                    {'>'} MicroNIR v6.0 Ready...
+                <main className="content" style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+                    <AnimatePresence mode="wait">
+                        {activeMenu === 'analysis' && (
+                            <motion.div 
+                                key="analysis"
+                                initial={{ opacity: 0, x: 20 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                exit={{ opacity: 0, x: -20 }}
+                                transition={{ duration: 0.2 }}
+                                style={{ height: '100%', overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: '15px' }}
+                            >
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '12px' }}>
+                                    {[
+                                        { label: 'CANAL DATOS', val: appStatus.mode, icon: <Activity size={10} /> },
+                                        { label: 'INT. (MS)', val: appStatus.exp.toFixed(1), icon: <Clock size={10} /> },
+                                        { label: 'TEMP', val: `${appStatus.temp.toFixed(1)}°C`, icon: <Thermometer size={10} /> },
+                                        { label: 'BATERÍA', val: `${appStatus.batt} %`, icon: <Battery size={10} /> },
+                                        { label: 'PRODUCTO', val: models.find(m => m.id === selectedModelIds[0])?.product || 'NONE', icon: <Database size={10} /> },
+                                    ].map((m, i) => (
+                                        <div key={i} className="ind-panel m-glow-blue" style={{ display: 'flex', flexDirection: 'column', gap: '6px', padding: '10px' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                <span style={{ fontSize: '0.55rem', color: '#38bdf8', fontWeight: '900', letterSpacing: '0.05em' }}>{m.label}</span>
+                                                {m.icon}
+                                            </div>
+                                            <div className="ind-inset" style={{ textAlign: 'center', padding: '6px 0' }}>
+                                                <span style={{ fontSize: '1rem', fontWeight: '900', color: '#fff', fontFamily: 'var(--mono)' }}>{m.val}</span>
+                                            </div>
+                                        </div>
+                                    ))}
                                 </div>
-                             </div>
-                        </details>
-                    </div>
-                </div>
-            </aside>
-
-                {/* Sidebar Toggle Button (Tab) */}
-                <button 
-                    onClick={() => {
-                        setIsSidebarOpen(!isSidebarOpen);
-                        setTimeout(() => app()?.chart?.resize(), 310);
-                    }}
-                    style={{
-                        position: 'absolute',
-                        left: isSidebarOpen ? '320px' : '0px',
-                        top: '50%',
-                        transform: 'translateY(-50%)',
-                        zIndex: 30,
-                        width: '24px',
-                        height: '60px',
-                        background: 'rgba(14, 25, 45, 0.9)',
-                        border: '1px solid rgba(14, 165, 233, 0.3)',
-                        borderLeft: 'none',
-                        borderRadius: '0 8px 8px 0',
-                        color: '#0ea5e9',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        transition: 'left 0.3s ease, background 0.2s',
-                        backdropFilter: 'blur(10px)',
-                        boxShadow: '4px 0 10px rgba(0,0,0,0.3)'
-                    }}
-                    className="hover:bg-cyan-500/10"
-                >
-                    <div style={{ transform: isSidebarOpen ? 'rotate(0deg)' : 'rotate(180deg)', transition: 'transform 0.3s' }}>
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                            <polyline points="15 18 9 12 15 6"></polyline>
-                        </svg>
-                    </div>
-                </button>
-
-                <main className="content transition-all duration-300" style={{ 
-                    flex: 1, 
-                    padding: '20px 24px',
-                    marginLeft: 0,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '15px',
-                    overflowY: 'auto'
-                }}>
-                    <div className="metrics-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '12px' }}>
-                        {/* CARD 1: CANAL DE DATOS */}
-                        <div className="ind-panel m-glow-blue" style={{ display: 'flex', flexDirection: 'column', gap: '6px', padding: '10px' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <span style={{ fontSize: '0.55rem', color: '#38bdf8', fontWeight: '900', letterSpacing: '0.05em' }}>CANAL DE DATOS</span>
-                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" strokeWidth="3"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
-                            </div>
-                            <div className="ind-inset" style={{ textAlign: 'center', padding: '6px 0' }}>
-                                <span id="valMode" style={{ fontSize: '1.2rem', fontWeight: '900', color: '#fff', fontFamily: 'var(--mono)' }}>BLE</span>
-                            </div>
-                        </div>
-
-                        {/* CARD 2: INTEGRACIÓN */}
-                        <div className="ind-panel m-glow-blue" style={{ display: 'flex', flexDirection: 'column', gap: '6px', padding: '10px' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <span style={{ fontSize: '0.55rem', color: '#38bdf8', fontWeight: '900', letterSpacing: '0.05em' }}>INTEGRACIÓN</span>
-                                <Clock size={10} style={{ color: '#38bdf8' }} />
-                            </div>
-                            <div className="ind-inset" style={{ textAlign: 'center', padding: '6px 0' }}>
-                                <span id="valExp" style={{ fontSize: '1.2rem', fontWeight: '900', color: '#fff', fontFamily: 'var(--mono)' }}>10.0</span>
-                                <span style={{ fontSize: '0.55rem', color: '#38bdf8', marginLeft: '3px', fontWeight: '800' }}>ms</span>
-                            </div>
-                        </div>
-
-                        {/* CARD 3: TEMPERATURA */}
-                        <div className="ind-panel m-glow-blue" style={{ display: 'flex', flexDirection: 'column', gap: '6px', padding: '10px' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <span style={{ fontSize: '0.55rem', color: '#38bdf8', fontWeight: '900', letterSpacing: '0.05em' }}>TEMPERATURA</span>
-                                <Thermometer size={10} style={{ color: '#38bdf8' }} />
-                            </div>
-                            <div className="ind-inset" style={{ textAlign: 'center', padding: '6px 0' }}>
-                                <span id="valTemp" style={{ fontSize: '1.2rem', fontWeight: '900', color: '#fff', fontFamily: 'var(--mono)' }}>33.7</span>
-                                <span style={{ fontSize: '0.55rem', color: '#38bdf8', marginLeft: '3px', fontWeight: '800' }}>°C</span>
-                            </div>
-                        </div>
-
-                        {/* CARD 4: BATERÍA */}
-                        <div className="ind-panel" id="batPanel" style={{ display: 'flex', flexDirection: 'column', gap: '6px', padding: '10px' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <span id="labelBat" style={{ fontSize: '0.55rem', color: '#f97316', fontWeight: '900', letterSpacing: '0.05em' }}>NIVEL BATERÍA</span>
-                                <Battery size={10} style={{ color: '#f97316' }} />
-                            </div>
-                            <div className="ind-inset" style={{ textAlign: 'center', padding: '6px 0', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
-                                <span id="valBat" style={{ fontSize: '1.2rem', fontWeight: '900', color: '#fff', fontFamily: 'var(--mono)' }}>—</span>
-                                <span style={{ fontSize: '0.8rem', color: 'currentColor', marginLeft: '1px', fontWeight: '800', opacity: 0.5 }}>%</span>
-                            </div>
-                        </div>
-
-                        {/* CARD 5: SINCRONIZACIÓN */}
-                        <div className="ind-panel m-glow-blue" style={{ display: 'flex', flexDirection: 'column', gap: '6px', padding: '10px' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <span style={{ fontSize: '0.55rem', color: '#38bdf8', fontWeight: '900', letterSpacing: '0.05em' }}>SINCRONIZACIÓN</span>
-                                <Activity size={10} style={{ color: '#38bdf8' }} />
-                            </div>
-                            <div className="ind-inset" style={{ textAlign: 'center', padding: '6px 0' }}>
-                                <span id="valPkt" style={{ fontSize: '1.2rem', fontWeight: '900', color: '#fff', fontFamily: 'var(--mono)' }}>125 / 3</span>
-                            </div>
-                        </div>
-                    </div>
 
                     <div id="progressContainer" style={{display:'none', background:'rgba(0,184,217,0.05)', borderRadius:'6px', padding:'12px', border:'1px solid rgba(0,184,217,0.1)', marginBottom:'0px'}}>
                         <div style={{display:'flex', justifyContent:'space-between', marginBottom:'10px'}}>
@@ -2617,21 +2522,53 @@ export default function App() {
                              <div style={{ color: '#fff', fontSize: '0.85rem', fontWeight: '900', letterSpacing: '0.05em' }}>CALIBRACIÓN</div>
                         </div>
                         
-                        <button id="btnDark" className={`step-card ${calib.dark ? 'completed' : 'active'}`} onClick={() => app()?.setDarkReference()} style={{ padding: '10px' }}>
-                            <Moon size={16} style={{ marginBottom: '4px' }} />
+                        <motion.button 
+                            id="btnDark" 
+                            className={`step-card ${calib.dark ? 'completed' : 'active'} ${isScanning ? 'scanning' : ''}`} 
+                            onClick={() => app()?.setDarkReference()} 
+                            style={{ padding: '10px', position: 'relative', overflow: 'hidden' }}
+                            whileHover={{ scale: 1.05, background: 'rgba(56, 189, 248, 0.15)' }}
+                            whileTap={{ scale: 0.95 }}
+                            animate={isScanning ? {
+                                boxShadow: ['0 0 0px rgba(56, 189, 248, 0.2)', '0 0 15px rgba(56, 189, 248, 0.6)', '0 0 0px rgba(56, 189, 248, 0.2)'],
+                                borderColor: ['rgba(56, 189, 248, 0.4)', 'rgba(56, 189, 248, 1)', 'rgba(56, 189, 248, 0.4)']
+                            } : {}}
+                            transition={isScanning ? { repeat: Infinity, duration: 1 } : { duration: 0.2 }}
+                        >
+                            <Moon size={16} style={{ marginBottom: '4px' }} className={isScanning ? 'animate-pulse' : ''} />
                             <span style={{ fontSize: '0.5rem', fontWeight: '900', marginBottom: '1px', opacity: 0.6 }}>
-                                {calib.dark ? '✓ COMPLETADO' : 'PASO 01'}
+                                {isScanning ? 'LEYENDO...' : (calib.dark ? '✓ COMPLETADO' : 'PASO 01')}
                             </span>
                             <span style={{ fontSize: '0.7rem', fontWeight: '900' }}>OSCURIDAD</span>
-                        </button>
+                            {isScanning && (
+                                <motion.div 
+                                    style={{ position: 'absolute', bottom: 0, left: 0, height: '2px', background: '#38bdf8' }}
+                                    initial={{ width: '0%' }}
+                                    animate={{ width: '100%' }}
+                                    transition={{ duration: 3, repeat: Infinity }}
+                                />
+                            )}
+                        </motion.button>
                         
-                        <button id="btnWhite" className={`step-card ${calib.white ? 'completed' : (calib.dark ? 'active' : '')}`} onClick={() => app()?.setWhiteReference()} style={{ padding: '10px' }}>
-                            <Sun size={16} style={{ marginBottom: '4px' }} />
+                        <motion.button 
+                            id="btnWhite" 
+                            className={`step-card ${calib.white ? 'completed' : (calib.dark ? 'active' : '')} ${isScanning ? 'scanning' : ''}`} 
+                            onClick={() => app()?.setWhiteReference()} 
+                            style={{ padding: '10px', position: 'relative', overflow: 'hidden' }}
+                            whileHover={{ scale: 1.05, background: 'rgba(56, 189, 248, 0.15)' }}
+                            whileTap={{ scale: 0.95 }}
+                            animate={isScanning ? {
+                                boxShadow: ['0 0 0px rgba(56, 189, 248, 0.2)', '0 0 15px rgba(56, 189, 248, 0.6)', '0 0 0px rgba(56, 189, 248, 0.2)'],
+                                borderColor: ['rgba(56, 189, 248, 0.4)', 'rgba(56, 189, 248, 1)', 'rgba(56, 189, 248, 0.4)']
+                            } : {}}
+                            transition={isScanning ? { repeat: Infinity, duration: 1 } : { duration: 0.2 }}
+                        >
+                            <Sun size={16} style={{ marginBottom: '4px' }} className={isScanning ? 'animate-pulse' : ''} />
                             <span style={{ fontSize: '0.5rem', fontWeight: '900', marginBottom: '1px', opacity: 0.6 }}>
-                                {calib.white ? '✓ COMPLETADO' : 'PASO 02'}
+                                {isScanning ? 'LEYENDO...' : (calib.white ? '✓ COMPLETADO' : 'PASO 02')}
                             </span>
                             <span style={{ fontSize: '0.7rem', fontWeight: '900' }}>BLANCO REFE.</span>
-                        </button>
+                        </motion.button>
                         
                         <button id="btnAbs" className="btn-action" 
                             onClick={() => {
@@ -2671,14 +2608,41 @@ export default function App() {
                         <div className="ind-panel" style={{ flex: 7, display: 'flex', flexDirection: 'column', padding: '15px', overflow: 'hidden' }}>
                             <div className="chart-hdr" style={{ marginBottom: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                                 <div>
-                                    <h2 style={{ fontSize: '1.4rem', fontWeight: '950', color: '#fff', letterSpacing: '-0.02em', marginBottom: '2px', lineHeight: 1 }}>
-                                        {selectedModelIds.length === 1 
-                                          ? models.find(m => m.id === selectedModelIds[0])?.product 
-                                          : selectedModelIds.length > 1 
-                                            ? `Multimodelo (${selectedModelIds.length})` 
-                                            : 'Espectro NIR'}
-                                    </h2>
-
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', minWidth: '350px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' }}>
+                                            <span style={{ fontSize: '0.65rem', color: '#38bdf8', fontWeight: '900', letterSpacing: '0.08em' }}>SELECCIONAR MATERIA PRIMA</span>
+                                        </div>
+                                        <div style={{ position: 'relative' }}>
+                                            <select 
+                                                value={selectedModelIds.length > 0 ? (models.find(m => m.id === selectedModelIds[0])?.product || '') : ''}
+                                                onChange={(e) => {
+                                                    const product = e.target.value;
+                                                    const ids = models.filter(m => m.product === product).map(m => m.id);
+                                                    setSelectedModelIds(ids);
+                                                    app()?.log(`✓ Producto cambiado a: ${product} (${ids.length} parámetros)`, 'log-warn');
+                                                }}
+                                                style={{
+                                                    width: '100%',
+                                                    background: 'rgba(56, 189, 248, 0.05)',
+                                                    color: '#fff',
+                                                    border: '1px solid rgba(14, 165, 233, 0.4)',
+                                                    borderRadius: '10px',
+                                                    padding: '12px 15px',
+                                                    fontSize: '0.9rem',
+                                                    fontWeight: '600',
+                                                    outline: 'none',
+                                                    appearance: 'none',
+                                                    cursor: 'pointer'
+                                                }}
+                                            >
+                                                <option value="" disabled style={{ background: '#0f172a' }}>-- Seleccionar Producto a Analizar --</option>
+                                                {uniqueProducts.map(p => (
+                                                    <option key={p} value={p} style={{ background: '#0f172a' }}>{p}</option>
+                                                ))}
+                                            </select>
+                                            <ChevronDown size={20} style={{ position: 'absolute', right: '15px', top: '50%', transform: 'translateY(-50%)', color: '#38bdf8', pointerEvents: 'none' }} />
+                                        </div>
+                                    </div>
                                 </div>
                                 <div className="chart-btns" style={{ gap: '8px' }}>
                                     <button className="chip-btn" onClick={() => app()?.toggleAbsorbance()} style={{ fontSize: '0.7rem' }}>ADC / ABSORBANCIA</button>
@@ -2686,7 +2650,7 @@ export default function App() {
                                     <button className="chip-btn" onClick={() => app()?.exportCSV()} style={{ border: '1px solid var(--primary)', color: 'var(--primary)', fontWeight: '900', fontSize: '0.7rem' }}>EXPORTAR CSV</button>
                                 </div>
                             </div>
-                            <div className="chart-container" style={{ flex: 1, position: 'relative' }}>
+                            <div className="chart-container">
                                 <canvas id="nirChart"></canvas>
                             </div>
                         </div>
@@ -2766,80 +2730,332 @@ export default function App() {
                         </div>
                     </div>
 
-                    {/* PANEL DE INSPECCIÓN DE HISTORIAL */}
-                    {viewedHistoryItem && (
-                        <div className="ind-panel" style={{ marginTop: '15px', padding: '15px', border: '1px solid #38bdf8', background: 'rgba(56, 189, 248, 0.03)', animation: 'fadeIn 0.3s ease' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                    <div style={{ padding: '8px', background: 'rgba(56, 189, 248, 0.1)', borderRadius: '8px' }}>
-                                        <Clock size={18} style={{ color: '#38bdf8' }} />
-                                    </div>
-                                    <div>
-                                    <div style={{ fontSize: '0.8rem', fontWeight: '950', color: '#fff', letterSpacing: '0.02em' }}>MODO INSPECCIÓN: ANÁLISIS HISTÓRICO</div>
-                                    <div style={{ fontSize: '0.6rem', color: '#38bdf8', fontWeight: '800' }}>{new Date(viewedHistoryItem.time).toLocaleString()}</div>
-                                    </div>
-                                </div>
-                                <button 
-                                    onClick={() => setViewedHistoryItem(null)} 
-                                    className="chip-btn" 
-                                    style={{ background: 'rgba(255,255,255,0.05)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)' }}
-                                >
-                                    CERRAR INSPECCIÓN ×
-                                </button>
-                            </div>
-
-                            <div style={{ display: 'flex', gap: '30px', flexWrap: 'wrap' }}>
-                                <div style={{ flex: 1, minWidth: '200px' }}>
-                                    <div style={{ fontSize: '0.55rem', color: '#94a3b8', fontWeight: '800', marginBottom: '8px', letterSpacing: '0.05em' }}>DATOS DE LA MUESTRA</div>
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', background: 'rgba(0,0,0,0.2)', padding: '12px', borderRadius: '10px' }}>
-                                        <div>
-                                            <div style={{ fontSize: '0.5rem', color: '#64748b', fontWeight: '900', marginBottom: '2px' }}>NOMBRE</div>
-                                            <div style={{ fontSize: '0.8rem', fontWeight: '900', color: '#fff' }}>{viewedHistoryItem.name}</div>
+                    {/* HISTORY PANEL WAS HERE */}
+                                <div className="ind-panel mb-15" style={{ height: '220px', display: 'flex', flexDirection: 'column', padding: '12px', marginTop: '15px' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <Database size={14} style={{ color: '#38bdf8' }} />
+                                            <span style={{ color: '#38bdf8', fontWeight: '900', fontSize: '0.6rem', letterSpacing: '0.05em' }}>LOG DE ANÁLISIS RECIENTE</span>
                                         </div>
-                                        <div>
-                                            <div style={{ fontSize: '0.5rem', color: '#64748b', fontWeight: '900', marginBottom: '2px' }}>ID / LOTE</div>
-                                            <div style={{ fontSize: '0.8rem', fontWeight: '900', color: '#fff' }}>{viewedHistoryItem.id} {viewedHistoryItem.lot ? `/ ${viewedHistoryItem.lot}` : ''}</div>
+                                        <div style={{ display: 'flex', gap: '10px' }}>
+                                            <button onClick={() => generatePDF(predictionResults)} className="chip-btn" style={{ fontSize: '0.55rem', padding: '2px 8px' }}>
+                                                <Printer size={10} style={{ marginRight: '4px' }} /> REPORTE PDF
+                                            </button>
+                                            <button onClick={() => app()?.clearHistory()} style={{ fontSize: '0.5rem', color: 'rgba(255,255,255,0.2)', fontWeight: '900', background: 'transparent', border: 'none', cursor: 'pointer' }}>LIMPIAR</button>
                                         </div>
                                     </div>
-                                </div>
-
-                                <div style={{ flex: 2, minWidth: '300px' }}>
-                                    <div style={{ fontSize: '0.55rem', color: '#94a3b8', fontWeight: '800', marginBottom: '8px', letterSpacing: '0.05em' }}>RESULTADOS DEL ANÁLISIS</div>
-                                    <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                                        {viewedHistoryItem.allPredictions ? (
-                                            viewedHistoryItem.allPredictions.map((p: any, i: number) => (
-                                                <div key={i} style={{ padding: '10px 15px', background: 'rgba(56, 189, 248, 0.05)', borderRadius: '10px', border: '1px solid rgba(56, 189, 248, 0.1)', minWidth: '120px' }}>
-                                                    <div style={{ fontSize: '0.55rem', color: '#94a3b8', fontWeight: '900' }}>{p.property.toUpperCase()}</div>
-                                                    <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
-                                                        <span style={{ fontSize: '1.1rem', fontWeight: '950', color: '#fff' }}>{p.value.toFixed(2)}</span>
-                                                        <span style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.4)', fontWeight: '900' }}>{p.unit || '%'}</span>
+                                    <div id="historyList" className="ind-inset" style={{ flex: 1, overflowY: 'auto', padding: '0px' }}>
+                                         {history.length === 0 ? (
+                                            <div className="dim-text" style={{fontSize:'.55rem', padding:'15px', color: 'rgba(255,255,255,0.1)', fontWeight: '900', textAlign: 'center' }}>ESPERANDO DATOS...</div>
+                                         ) : (
+                                            history.map((item, i) => (
+                                                <div 
+                                                    key={i} 
+                                                    onClick={() => setViewedHistoryItem(item)}
+                                                    className="history-item"
+                                                    style={{ 
+                                                        padding: '10px 12px', 
+                                                        borderBottom: '1px solid rgba(255,255,255,0.05)', 
+                                                        cursor: 'pointer',
+                                                        display: 'flex',
+                                                        justifyContent: 'space-between',
+                                                        alignItems: 'center'
+                                                    }}
+                                                >
+                                                    <div>
+                                                        <div style={{ fontSize: '0.7rem', color: '#fff', fontWeight: '900' }}>{item.name}</div>
+                                                        <div style={{ fontSize: '0.5rem', color: '#64748b' }}>{new Date(item.time).toLocaleTimeString()}</div>
                                                     </div>
-                                                    <div style={{ fontSize: '0.55rem', marginTop: '2px', fontWeight: '800', color: p.gh > 3 ? '#fb923c' : '#38bdf8' }}>
-                                                        GH: {p.gh?.toFixed(2)}
-                                                    </div>
+                                                    {item.prediction !== undefined && (
+                                                        <div style={{ fontSize: '0.75rem', fontWeight: '950', color: '#38bdf8' }}>{item.prediction.toFixed(1)}%</div>
+                                                    )}
                                                 </div>
                                             ))
-                                        ) : viewedHistoryItem.prediction !== undefined ? (
-                                            <div style={{ padding: '10px 15px', background: 'rgba(56, 189, 248, 0.05)', borderRadius: '10px', border: '1px solid rgba(56, 189, 248, 0.1)', minWidth: '120px' }}>
-                                                <div style={{ fontSize: '0.55rem', color: '#94a3b8', fontWeight: '900' }}>{(viewedHistoryItem.propName || 'Proteína').toUpperCase()}</div>
-                                                <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
-                                                    <span style={{ fontSize: '1.1rem', fontWeight: '950', color: '#fff' }}>{viewedHistoryItem.prediction.toFixed(2)}</span>
-                                                    <span style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.4)', fontWeight: '900' }}>{viewedHistoryItem.unit || '%'}</span>
+                                         )}
+                                    </div>
+                                </div>
+
+                                {viewedHistoryItem && (
+                                    <div className="ind-panel m-glow-gold" style={{ 
+                                        marginTop: '15px', padding: '15px', border: '1px solid #fbbf24', background: 'rgba(251, 191, 36, 0.05)', animation: 'fadeIn 0.3s ease' 
+                                    }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                <div style={{ padding: '8px', background: 'rgba(251, 191, 36, 0.1)', borderRadius: '8px' }}>
+                                                    <Clock size={18} style={{ color: '#fbbf24' }} />
                                                 </div>
-                                                <div style={{ fontSize: '0.55rem', marginTop: '2px', fontWeight: '800', color: viewedHistoryItem.gh > 3 ? '#fb923c' : '#38bdf8' }}>
-                                                    GH: {viewedHistoryItem.gh?.toFixed(2)}
+                                                <div>
+                                                    <div style={{ fontSize: '0.8rem', fontWeight: '950', color: '#fff' }}>MODO INSPECCIÓN: ANÁLISIS HISTÓRICO</div>
+                                                    <div style={{ fontSize: '0.6rem', color: '#fbbf24' }}>{new Date(viewedHistoryItem.time).toLocaleString()}</div>
                                                 </div>
                                             </div>
-                                        ) : (
-                                            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60px', borderRadius: '10px', background: 'rgba(255,255,255,0.02)', border: '1px dashed rgba(255,255,255,0.05)' }}>
-                                                <div style={{ fontSize: '0.6rem', color: '#64748b', fontWeight: '800' }}>NO HAY RESULTADOS PREDICTIVOS EN ESTE REGISTRO</div>
+                                            <div style={{ display: 'flex', gap: '8px' }}>
+                                                <button onClick={() => generatePDF(viewedHistoryItem)} className="chip-btn" style={{ background: '#fbbf24', color: '#000', border: 'none', fontWeight: '950', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                    <Printer size={14} /> IMPRIMIR PDF
+                                                </button>
+                                                <button onClick={() => setViewedHistoryItem(null)} className="chip-btn" style={{ color: '#fff', border: '1px solid rgba(255,255,255,0.1)' }}>CERRAR ×</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </motion.div>
+                        )}
+
+                        {activeMenu === 'models' && (
+                            <motion.div 
+                                key="models"
+                                initial={{ opacity: 0, scale: 0.98 }}
+                                animate={{ opacity: 1, scale: 1 }}
+                                exit={{ opacity: 0, scale: 0.98 }}
+                                transition={{ duration: 0.25, ease: "easeOut" }}
+                                style={{ height: '100%', overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: '20px' }}
+                            >
+                                <div style={{ marginBottom: '10px' }}>
+                                    <h2 style={{ fontSize: '1.5rem', fontWeight: '950', color: '#fff' }}>GESTIÓN DE MODELOS</h2>
+                                    <p style={{ fontSize: '0.75rem', color: '#38bdf8', fontWeight: '800' }}>Sincronice y administre su librería de modelos predictivos.</p>
+                                </div>
+
+                                <div className="ind-panel" style={{ padding: '25px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                        <Cloud size={24} style={{ color: '#38bdf8' }} />
+                                        <span style={{ fontWeight: '950', fontSize: '1rem', color: '#fff' }}>MODELOS EN LA NUBE</span>
+                                    </div>
+                                    
+                                    <div className="ind-inset" style={{ padding: '20px', borderRadius: '14px' }}>
+                                        <div style={{ fontSize: '0.65rem', color: '#38bdf8', fontWeight: '900', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>URL DE SERVICIO (GOOGLE APPS SCRIPT)</div>
+                                        <div style={{ display: 'flex', gap: '12px' }}>
+                                            <input 
+                                                type="text" 
+                                                value={cloudUrl} 
+                                                onChange={(e) => setCloudUrl(e.target.value)} 
+                                                placeholder="https://script.google.com/macros/s/..." 
+                                                style={{ flex: 1, background: 'rgba(0,0,0,0.3)', color: '#fff', border: '1px solid rgba(14, 165, 233, 0.3)', borderRadius: '10px', padding: '14px', fontSize: '0.8rem' }} 
+                                            />
+                                            <button 
+                                                onClick={syncLibrary} 
+                                                disabled={isSyncing} 
+                                                className="btn-action" 
+                                                style={{ width: '52px', height: '52px', padding: 0 }}
+                                            >
+                                                <RefreshCw size={24} className={isSyncing ? "spin" : ""} />
+                                            </button>
+                                        </div>
+                                        
+                                        {cloudFolders.length > 0 && (
+                                            <div style={{ marginTop: '20px', animation: 'fadeIn 0.3s' }}>
+                                                <div style={{ fontSize: '0.65rem', color: '#38bdf8', fontWeight: '900', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>SELECCIONAR MATERIA PRIMA</div>
+                                                <div style={{ position: 'relative' }}>
+                                                    <select 
+                                                        value={selectedFolder}
+                                                        onChange={(e) => loadFolderModels(e.target.value)}
+                                                        style={{ width: '100%', background: 'rgba(56, 189, 248, 0.05)', color: '#fff', border: '1px solid rgba(14, 165, 233, 0.4)', borderRadius: '10px', padding: '12px 15px', fontSize: '0.85rem', outline: 'none', appearance: 'none' }}
+                                                    >
+                                                        <option value="">-- Seleccionar Carpeta de Modelos --</option>
+                                                        {cloudFolders.map(f => <option key={f.id} value={f.id} style={{ background: '#0f172a' }}>{f.name}</option>)}
+                                                    </select>
+                                                    <ChevronDown size={18} style={{ position: 'absolute', right: '15px', top: '50%', transform: 'translateY(-50%)', color: '#38bdf8', pointerEvents: 'none' }} />
+                                                </div>
                                             </div>
                                         )}
                                     </div>
+
+                                    <div style={{ marginTop: '10px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '15px' }}>
+                                            <Database size={18} style={{ color: '#38bdf8' }} />
+                                            <span style={{ fontWeight: '950', fontSize: '0.85rem', color: '#fff' }}>LIBRERÍA LOCAL DE MODELOS</span>
+                                            <span style={{ fontSize: '0.6rem', color: '#94a3b8', marginLeft: 'auto' }}>({models.length} modelos cargados)</span>
+                                        </div>
+
+                                        <div className="ind-inset" style={{ minHeight: '300px', padding: '15px', overflowY: 'auto' }}>
+                                            {models.length === 0 ? (
+                                                <div style={{ height: '200px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.15)', gap: '15px' }}>
+                                                    <Database size={48} />
+                                                    <span style={{ fontSize: '0.8rem', fontWeight: '900', letterSpacing: '0.1em' }}>SIN MODELOS DISPONIBLES</span>
+                                                    <button onClick={syncLibrary} className="chip-btn" style={{ fontSize: '0.7rem' }}>SINCRONIZAR AHORA</button>
+                                                </div>
+                                            ) : (
+                                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '12px' }}>
+                                                    {models.map(m => (
+                                                        <div key={m.id} className={`model-card ${selectedModelIds.includes(m.id) ? 'selected' : ''}`} style={{ 
+                                                            display: 'flex', 
+                                                            alignItems: 'center', 
+                                                            justifyContent: 'space-between', 
+                                                            padding: '15px', 
+                                                            background: selectedModelIds.includes(m.id) ? 'rgba(56, 189, 248, 0.08)' : 'rgba(255,255,255,0.02)', 
+                                                            borderRadius: '12px', 
+                                                            border: '1px solid',
+                                                            borderColor: selectedModelIds.includes(m.id) ? 'rgba(56, 189, 248, 0.4)' : 'rgba(255,255,255,0.05)',
+                                                            transition: 'all 0.2s'
+                                                        }}>
+                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
+                                                                <div 
+                                                                    onClick={() => setSelectedModelIds(prev => prev.includes(m.id) ? prev.filter(id => id !== m.id) : [...prev, m.id])}
+                                                                    style={{ 
+                                                                        width: '20px', 
+                                                                        height: '20px', 
+                                                                        borderRadius: '6px', 
+                                                                        border: '2px solid',
+                                                                        borderColor: selectedModelIds.includes(m.id) ? '#38bdf8' : 'rgba(255,255,255,0.2)',
+                                                                        background: selectedModelIds.includes(m.id) ? '#38bdf8' : 'transparent',
+                                                                        display: 'flex',
+                                                                        alignItems: 'center',
+                                                                        justifyContent: 'center',
+                                                                        cursor: 'pointer'
+                                                                    }}
+                                                                >
+                                                                    {selectedModelIds.includes(m.id) && <Plus size={14} style={{ color: '#000', transform: 'rotate(45deg)' }} />}
+                                                                </div>
+                                                                <div style={{ flex: 1, cursor: 'pointer' }} onClick={() => setSelectedModelIds(prev => prev.includes(m.id) ? prev.filter(id => id !== m.id) : [...prev, m.id])}>
+                                                                    <div style={{ fontSize: '0.85rem', fontWeight: '950', color: '#fff', letterSpacing: '-0.01em' }}>{m.product}</div>
+                                                                    <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: '700' }}>{m.name}</div>
+                                                                </div>
+                                                            </div>
+                                                            <div style={{ display: 'flex', gap: '8px' }}>
+                                                                <button 
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        const settings = app()?.biasSettings[m.product + '_' + m.name.toLowerCase().replace(/ /g, '_')] || {};
+                                                                        const propSettings = settings[m.name] || { bias: 0, slope: 1 };
+                                                                        setBiasTargetModel(m);
+                                                                        setBiasState({ [m.name]: propSettings });
+                                                                        setIsBiasModalOpen(true);
+                                                                    }}
+                                                                    title="Ajuste de Bias/Slope"
+                                                                    className="btn-icon-gold"
+                                                                    style={{ padding: '8px', background: 'rgba(251, 191, 36, 0.1)', border: '1px solid rgba(251, 191, 36, 0.2)', borderRadius: '8px', color: '#fbbf24' }}
+                                                                >
+                                                                    <Settings size={14} />
+                                                                </button>
+                                                                <button 
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        if (window.confirm(`¿Eliminar modelo ${m.product}?`)) {
+                                                                            setModels(prev => prev.filter(x => x.id !== m.id));
+                                                                        }
+                                                                    }}
+                                                                    className="btn-icon-red"
+                                                                    style={{ padding: '8px', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: '8px', color: '#ef4444' }}
+                                                                >
+                                                                    <Trash2 size={14} />
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
                                 </div>
-                            </div>
-                        </div>
-                    )}
+                            </motion.div>
+                        )}
+
+                        {activeMenu === 'config' && (
+                            <motion.div 
+                                key="config"
+                                initial={{ opacity: 0, scale: 0.98 }}
+                                animate={{ opacity: 1, scale: 1 }}
+                                exit={{ opacity: 0, scale: 0.98 }}
+                                transition={{ duration: 0.25, ease: "easeOut" }}
+                                style={{ height: '100%', overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: '20px' }}
+                            >
+                                <div style={{ marginBottom: '10px' }}>
+                                    <h2 style={{ fontSize: '1.5rem', fontWeight: '950', color: '#fff' }}>PANEL DE CONFIGURACIÓN</h2>
+                                    <p style={{ fontSize: '0.75rem', color: '#38bdf8', fontWeight: '800' }}>Gestione la conectividad y modelos predictivos.</p>
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(350px, 1fr)', gap: '20px' }}>
+                                    <div className="ind-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                            <Bluetooth size={20} style={{ color: '#38bdf8' }} />
+                                            <span style={{ fontWeight: '950', fontSize: '0.85rem', color: '#fff' }}>SISTEMA DE CONEXIÓN</span>
+                                        </div>
+                                        <button className="btn-action" onClick={() => app()?.connect()} style={{ width: '100%', padding: '18px', borderRadius: '14px', fontWeight: '950', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px' }}>
+                                             <Search size={20} /> VINCULAR EQUIPO MICRO-NIR
+                                        </button>
+                                        <div className="ind-inset" style={{ padding: '15px' }}>
+                                            <div style={{ fontSize: '0.6rem', color: '#38bdf8', fontWeight: '900', marginBottom: '8px' }}>MÉTODO DE COMUNICACIÓN</div>
+                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '15px' }}>
+                                                <button onClick={() => app()?.setMode('ble')} className="chip-btn" style={{ background: 'rgba(56, 189, 248, 0.1)', borderColor: '#38bdf8', color: '#fff' }}>BLUETOOTH LE</button>
+                                                <button onClick={() => app()?.setMode('usb')} className="chip-btn">USB / SERIAL</button>
+                                            </div>
+                                            <div style={{ fontSize: '0.6rem', color: '#38bdf8', fontWeight: '900', marginBottom: '5px' }}>UUID DE SERVICIO PERSONALIZADO (UART)</div>
+                                            <input 
+                                                type="text" 
+                                                value={customUuid} 
+                                                onChange={(e) => setCustomUuid(e.target.value)} 
+                                                placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" 
+                                                style={{ width: '100%', background: 'rgba(0,0,0,0.3)', color: '#fff', border: '1px solid rgba(14, 165, 233, 0.3)', borderRadius: '8px', padding: '10px', fontSize: '0.7rem', fontFamily: 'var(--mono)' }} 
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            </motion.div>
+                        )}
+
+                        {activeMenu === 'diag' && (
+                            <motion.div 
+                                key="diag"
+                                initial={{ opacity: 0, scale: 0.98 }}
+                                animate={{ opacity: 1, scale: 1 }}
+                                exit={{ opacity: 0, scale: 0.98 }}
+                                transition={{ duration: 0.25, ease: "easeOut" }}
+                                style={{ height: '100%', overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: '20px' }}
+                            >
+                                <div style={{ marginBottom: '10px' }}>
+                                    <h2 style={{ fontSize: '1.5rem', fontWeight: '950', color: '#fff' }}>SISTEMA DE DIAGNÓSTICO</h2>
+                                    <p style={{ fontSize: '0.75rem', color: '#38bdf8', fontWeight: '800' }}>Verificación técnica y telemetría de hardware.</p>
+                                </div>
+
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '25px', flex: 1 }}>
+                                    <div className="ind-panel" style={{ padding: '20px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px' }}>
+                                            <Activity size={18} style={{ color: '#38bdf8' }} />
+                                            <span style={{ fontWeight: '950', fontSize: '0.8rem', color: '#fff' }}>ESTADO DE HARDWARE</span>
+                                        </div>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                                            {[
+                                                { label: 'PROCESADOR (MCU)', id: 'mcu' },
+                                                { label: 'LÁMPARA (ENG)', id: 'lamp' },
+                                                { label: 'CONVERSOR (ADC)', id: 'adc' },
+                                                { label: 'ALIMENTACIÓN (PWR)', id: 'pwr' }
+                                            ].map(led => (
+                                                <div key={led.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', background: 'rgba(255,255,255,0.02)', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                                                    <span style={{ fontSize: '0.65rem', fontWeight: '900', color: '#cbd5e1' }}>{led.label}</span>
+                                                    <div id={`diag-led-${led.id}`} className={`status-led ${hwStatus[led.id] ? 'led-on' : 'led-off'}`}></div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    <div className="ind-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '15px' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                <LayoutList size={18} style={{ color: '#38bdf8' }} />
+                                                <span style={{ fontWeight: '950', fontSize: '0.8rem', color: '#fff' }}>CONSOLA DEL SISTEMA</span>
+                                            </div>
+                                            <div style={{ fontSize: '0.55rem', color: '#38bdf8', fontWeight: '900', background: 'rgba(56, 189, 248, 0.1)', padding: '4px 10px', borderRadius: '4px' }}>LOGS EN TIEMPO REAL</div>
+                                        </div>
+                                        <div className="ind-inset" style={{ flex: 1, padding: '15px', overflowY: 'auto', background: '#020617', borderRadius: '15px' }}>
+                                            <div id="diagConsole" style={{ fontSize: '0.75rem', fontFamily: 'var(--mono)', color: 'rgba(56, 189, 248, 0.6)', lineHeight: '1.6' }}>
+                                                {diagLogs.length === 0 ? (
+                                                    <div>{'>'} Preparando consola de diagnóstico...</div>
+                                                ) : (
+                                                    diagLogs.map(log => (
+                                                        <div key={log.id} style={{ 
+                                                            marginBottom: '2px', 
+                                                            color: log.type === 'log-err' ? '#ef4444' : log.type === 'log-warn' ? '#fb923c' : 'rgba(56, 189, 248, 0.6)' 
+                                                        }}>
+                                                            [{log.time}] {log.msg}
+                                                        </div>
+                                                    ))
+                                                )}
+                                                <div ref={logEndRef} />
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
                 </main>
 
             </div>
