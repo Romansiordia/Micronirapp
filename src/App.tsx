@@ -2374,7 +2374,7 @@ export default function App() {
                     </div>
                     <div>
                         <div className="logo-text">Spectra<span>Nir</span></div>
-                        <div style={{ fontSize: '0.6rem', color: '#38bdf8', fontWeight: '800', opacity: 0.6 }}>PROFESSIONAL PLATFORM</div>
+                        <div style={{ fontSize: '0.6rem', color: '#38bdf8', fontWeight: '800', opacity: 0.6 }}>RSS</div>
                     </div>
                 </div>
 
