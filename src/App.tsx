@@ -2822,7 +2822,7 @@ export default function App() {
                                     </div>
                                     
                                     <div className="ind-inset" style={{ padding: '20px', borderRadius: '14px' }}>
-                                        <div style={{ fontSize: '0.65rem', color: '#38bdf8', fontWeight: '900', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>URL DE SERVICIO (GOOGLE APPS SCRIPT)</div>
+                                        <div style={{ fontSize: '0.65rem', color: '#38bdf8', fontWeight: '900', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>LINK NUBE</div>
                                         <div style={{ display: 'flex', gap: '12px' }}>
                                             <input 
                                                 type="text" 
