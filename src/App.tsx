@@ -2447,6 +2447,20 @@ export default function App() {
                         </div>
 
                         <div 
+                            className="nav-item"
+                            onClick={() => app()?.connect()}
+                            title="Conectar MicroNIR"
+                            style={{ 
+                                marginTop: '10px', 
+                                border: '1px solid rgba(56, 189, 248, 0.2)',
+                                cursor: 'pointer'
+                            }}
+                        >
+                            <Bluetooth size={20} style={{ color: '#38bdf8' }} />
+                            {isSidebarHovered && <span className="nav-label" style={{ color: '#38bdf8', fontWeight: '950' }}>CONECTAR</span>}
+                        </div>
+
+                        <div 
                             id="btnDiscNav"
                             className="nav-item"
                             onClick={() => app()?.disconnect().then(() => window.location.reload())}
