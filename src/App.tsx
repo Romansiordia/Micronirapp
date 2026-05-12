@@ -5,7 +5,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Chart, registerables } from 'chart.js';
-import { Cpu, Clock, Thermometer, Battery, Activity, Moon, Sun, Zap, Lock, Unlock, PowerOff, Database, FileJson, ChevronDown, Plus, Trash2, Printer, Settings, BarChart3, ShieldAlert, LayoutDashboard, Search, Link as LinkIcon, RefreshCw, Bluetooth, Usb, Cloud, LayoutList } from 'lucide-react';
+import { Cpu, Clock, Thermometer, Battery, Activity, Moon, Sun, Zap, Lock, Unlock, PowerOff, Database, FileJson, ChevronDown, Plus, Trash2, Printer, Settings, BarChart3, ShieldAlert, LayoutDashboard, Search, Link as LinkIcon, RefreshCw, Bluetooth, Usb, Cloud, LayoutList, Wheat, Sprout, Leaf, Flower2, FlaskConical, Beef, Fish, Package } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { PredictionModel, PredictionResult, ModelJSON } from './types';
 import { predict } from './services/chemometrics';
@@ -2039,6 +2039,18 @@ class MicroNIRApp {
     }
 }
 
+const getProductIcon = (productName: string) => {
+    const p = productName.toLowerCase();
+    if (p.includes('maiz') || p.includes('sorgo')) return <Sprout size={16} style={{ color: '#38bdf8' }} />;
+    if (p.includes('soya')) return <Leaf size={16} style={{ color: '#38bdf8' }} />;
+    if (p.includes('canola')) return <Flower2 size={16} style={{ color: '#38bdf8' }} />;
+    if (p.includes('trigo') || p.includes('salvado')) return <Wheat size={16} style={{ color: '#38bdf8' }} />;
+    if (p.includes('ddgs')) return <FlaskConical size={16} style={{ color: '#38bdf8' }} />;
+    if (p.includes('carne') || p.includes('cerdo') || p.includes('pollo')) return <Beef size={16} style={{ color: '#38bdf8' }} />;
+    if (p.includes('pescado')) return <Fish size={16} style={{ color: '#38bdf8' }} />;
+    return <Package size={16} style={{ color: '#38bdf8' }} />;
+};
+
 export default function App() {
     const appRef = useRef<MicroNIRApp | null>(null);
     const [calib, setCalib] = useState({ dark: false, white: false });
@@ -2919,9 +2931,14 @@ export default function App() {
                                                                 >
                                                                     {selectedModelIds.includes(m.id) && <Plus size={14} style={{ color: '#000', transform: 'rotate(45deg)' }} />}
                                                                 </div>
-                                                                <div style={{ flex: 1, cursor: 'pointer' }} onClick={() => setSelectedModelIds(prev => prev.includes(m.id) ? prev.filter(id => id !== m.id) : [...prev, m.id])}>
-                                                                    <div style={{ fontSize: '0.85rem', fontWeight: '950', color: '#fff', letterSpacing: '-0.01em' }}>{m.product}</div>
-                                                                    <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: '700' }}>{m.name}</div>
+                                                                <div style={{ flex: 1, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }} onClick={() => setSelectedModelIds(prev => prev.includes(m.id) ? prev.filter(id => id !== m.id) : [...prev, m.id])}>
+                                                                    <div style={{ padding: '6px', background: 'rgba(56, 189, 248, 0.1)', borderRadius: '8px', display: 'flex' }}>
+                                                                        {getProductIcon(m.product)}
+                                                                    </div>
+                                                                    <div>
+                                                                        <div style={{ fontSize: '0.85rem', fontWeight: '950', color: '#fff', letterSpacing: '-0.01em' }}>{m.product}</div>
+                                                                        <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: '700' }}>{m.name}</div>
+                                                                    </div>
                                                                 </div>
                                                             </div>
                                                             <div style={{ display: 'flex', gap: '8px' }}>
