@@ -105,7 +105,7 @@ class MicroNIRApp {
         pkt: string;
     }) => void;
     onHwUpdate?: (hw: Record<string, boolean>) => void;
-    currentModels: ModelJSON[] = [];
+    currentModels: PredictionModel[] = [];
     customServiceUUID: string | null = null;
 
     constructor() {
@@ -1962,13 +1962,14 @@ class MicroNIRApp {
                     
                     for (const m of models) {
                         try {
+                            const prop = m.json.analyticalProperty || m.name;
                             // Capturamos el log para prefijarlo con el nombre de la propiedad
-                            const res = predict(absorbance, m, (msg, type) => this.log(`[${m.analyticalProperty}] ${msg}`, type));
+                            const res = predict(absorbance, m.json, (msg, type) => this.log(`[${prop}] ${msg}`, type));
                             
                             // APLICAR BIAS Y SLOPE
                             const devKey = this.getDeviceKey();
                             const modelKey = `${devKey}_${m.product}`;
-                            const settings = this.biasSettings[modelKey]?.[m.analyticalProperty] || { bias: 0, slope: 1 };
+                            const settings = this.biasSettings[modelKey]?.[prop] || { bias: 0, slope: 1 };
                             
                             const rawValue = res.value;
                             const correctedValue = (rawValue * settings.slope) + settings.bias;
@@ -1976,9 +1977,9 @@ class MicroNIRApp {
                             res.value = correctedValue;
                             
                             results.push(res);
-                            this.log(`Predicción [${m.analyticalProperty}]: ${res.value.toFixed(2)} ${res.unit} (Original: ${rawValue.toFixed(2)}, Bias: ${settings.bias})`, 'log-warn');
+                            this.log(`Predicción [${prop}]: ${res.value.toFixed(2)} ${res.unit} (Original: ${rawValue.toFixed(2)}, Bias: ${settings.bias}, Slope: ${settings.slope})`, 'log-warn');
                         } catch (err: any) {
-                            this.log(`Error en modelo ${m.analyticalProperty}: ${err.message}`, 'log-err');
+                            this.log(`Error en modelo ${m.json.analyticalProperty || m.name}: ${err.message}`, 'log-err');
                         }
                     }
 
@@ -2109,6 +2110,43 @@ export default function App() {
         } finally {
             setIsSyncing(false);
         }
+    };
+
+    const loadLocalModel = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            try {
+                const jsonObj = JSON.parse(event.target?.result as string);
+                
+                // Prompt user to give a product name for the local model
+                const productName = window.prompt("Ingrese el nombre de la matriz (Materia Prima) para este modelo:", "LOCAL");
+                if (!productName) return;
+
+                const newModel: PredictionModel = {
+                    id: crypto.randomUUID(),
+                    name: jsonObj.analyticalProperty || file.name.replace('.json', ''),
+                    product: productName.toUpperCase(),
+                    json: jsonObj
+                };
+
+                setModels(prev => {
+                    const filtered = prev.filter(p => !(p.product === newModel.product && p.name === newModel.name));
+                    return [...filtered, newModel];
+                });
+
+                setSelectedModelIds(prev => [...prev, newModel.id]);
+                app()?.log(`✓ Modelo local "${newModel.name}" cargado para ${newModel.product}.`, "log-warn");
+            } catch (err: any) {
+                app()?.log("Error al cargar modelo local: " + err.message, "log-err");
+                alert("Error al procesar el archivo JSON.");
+            }
+        };
+        reader.readAsText(file);
+        // Reset the input so the same file could be selected again if needed
+        e.target.value = '';
     };
 
     const loadFolderModels = async (folderId: string) => {
@@ -2328,7 +2366,7 @@ export default function App() {
         const a = app();
         if (a) {
             const selectedModels = models.filter(m => selectedModelIds.includes(m.id));
-            a.currentModels = selectedModels.map(m => m.json);
+            a.currentModels = selectedModels;
             console.log('Modelos actualizados en app instance:', a.currentModels.length, selectedModelIds);
             if (selectedModels.length > 0) {
                 a.log(`Modelos activos para predicción: ${selectedModels.map(m => m.product).join(', ')}`, 'log-sys');
@@ -2885,6 +2923,16 @@ export default function App() {
                                         )}
                                     </div>
 
+                                    <div className="ind-inset" style={{ padding: '20px', borderRadius: '14px', marginTop: '10px' }}>
+                                        <div style={{ fontSize: '0.65rem', color: '#38bdf8', fontWeight: '900', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>CARGAR MODELO LOCAL</div>
+                                        <div style={{ display: 'flex', alignItems: 'center' }}>
+                                            <label style={{ cursor: 'pointer', background: 'rgba(14, 165, 233, 0.15)', color: '#38bdf8', border: '1px solid rgba(14, 165, 233, 0.4)', borderRadius: '10px', padding: '12px 20px', fontSize: '0.8rem', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '8px', transition: 'all 0.2s' }}>
+                                                <FileJson size={18} /> Buscar archivo JSON
+                                                <input type="file" accept=".json" onChange={loadLocalModel} style={{ display: 'none' }} />
+                                            </label>
+                                        </div>
+                                    </div>
+
                                     <div style={{ marginTop: '10px' }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '15px' }}>
                                             <Database size={18} style={{ color: '#38bdf8' }} />
@@ -2945,10 +2993,11 @@ export default function App() {
                                                                 <button 
                                                                     onClick={(e) => {
                                                                         e.stopPropagation();
-                                                                        const settings = app()?.biasSettings[m.product + '_' + m.name.toLowerCase().replace(/ /g, '_')] || {};
-                                                                        const propSettings = settings[m.name] || { bias: 0, slope: 1 };
+                                                                        const devKey = appRef.current?.getDeviceKey() || '';
+                                                                        const modelKey = `${devKey}_${m.product}`;
+                                                                        const settings = appRef.current?.biasSettings[modelKey] || {};
                                                                         setBiasTargetModel(m);
-                                                                        setBiasState({ [m.name]: propSettings });
+                                                                        setBiasState(settings);
                                                                         setIsBiasModalOpen(true);
                                                                     }}
                                                                     title="Ajuste de Bias/Slope"
@@ -3111,7 +3160,7 @@ export default function App() {
                         <div className="ind-inset" style={{ padding: '15px', maxHeight: '400px', overflowY: 'auto', marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
                             {/* Buscar todos los modelos que pertenecen al mismo producto */}
                             {models.filter(m => m.product === biasTargetModel.product).map(m => {
-                                const prop = m.analyticalProperty || m.name;
+                                const prop = m.json?.analyticalProperty || m.name;
                                 const settings = biasState[prop] || { bias: 0, slope: 1 };
 
                                 return (
