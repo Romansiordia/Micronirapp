@@ -365,10 +365,6 @@ header {
     position: relative;
 }
 
-.sidebar-mini.expanded {
-    width: 240px;
-}
-
 .nav-item {
     width: calc(100% - 20px);
     height: 44px;
@@ -394,15 +390,6 @@ header {
     color: var(--primary);
     border: 1px solid rgba(14, 165, 233, 0.3);
     box-shadow: 0 0 15px rgba(14, 165, 233, 0.1);
-}
-
-.nav-label {
-    white-space: nowrap;
-    margin-left: 12px;
-    font-weight: 800;
-    font-size: 0.75rem;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
 }
 
 /* ── HEADER ── */

@@ -5,7 +5,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Chart, registerables } from 'chart.js';
-import { Cpu, Clock, Thermometer, Battery, Activity, Moon, Sun, Zap, Lock, Unlock, PowerOff, Database, FileJson, ChevronDown, Plus, Trash2, Printer, Settings, BarChart3, ShieldAlert, LayoutDashboard, Search, Link as LinkIcon, RefreshCw, Bluetooth, Usb, Cloud, LayoutList, Wheat, Sprout, Leaf, Flower2, FlaskConical, Beef, Fish, Package } from 'lucide-react';
+import { Cpu, Clock, Thermometer, Battery, Activity, Moon, Sun, Zap, Lock, Unlock, PowerOff, Database, FileJson, ChevronDown, Plus, Trash2, Printer, Settings, BarChart3, ShieldAlert, LayoutDashboard, Search, Link as LinkIcon, RefreshCw, Bluetooth, Usb, Cloud, LayoutList, Wheat, Sprout, Leaf, Flower2, FlaskConical, Beef, Fish, Package, Gauge } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { PredictionModel, PredictionResult, ModelJSON } from './types';
 import { predict } from './services/chemometrics';
@@ -2195,8 +2195,7 @@ export default function App() {
     const [predictionResults, setPredictionResults] = useState<PredictionResult[]>([]);
     const [isScanning, setIsScanning] = useState(false);
     const [isPredicting, setIsPredicting] = useState(false);
-    const [activeMenu, setActiveMenu] = useState<'config' | 'analysis' | 'diag' | 'models'>('analysis');
-    const [isSidebarHovered, setIsSidebarHovered] = useState(false);
+    const [activeMenu, setActiveMenu] = useState<'config' | 'analysis' | 'diag' | 'models' | 'indicators'>('analysis');
 
     useEffect(() => {
         localStorage.setItem('mn_models', JSON.stringify(models));
@@ -2413,6 +2412,14 @@ export default function App() {
 
     const app = () => appRef.current;
 
+    const DiagIcon = ({ size = 20 }: { size?: number }) => (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="11" cy="11" r="8"/>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            <polyline points="7 11 9 8 11 14 13 11 15 11" strokeWidth="1.5"/>
+        </svg>
+    );
+
     return (
         <>
             <header className="ind-panel" style={{ borderBottom: '1px solid rgba(14, 165, 233, 0.2)', marginBottom: '0', borderRadius: '0' }}>
@@ -2455,9 +2462,7 @@ export default function App() {
             </header>
 
             <div className="main-content">
-                <nav className={`sidebar-mini ${isSidebarHovered ? 'expanded' : ''}`}
-                     onMouseEnter={() => setIsSidebarHovered(true)}
-                     onMouseLeave={() => setIsSidebarHovered(false)}>
+                <nav className="sidebar-mini">
                     
                     <div style={{ flex: 1, width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
                         <div 
@@ -2465,8 +2470,7 @@ export default function App() {
                             onClick={() => setActiveMenu('analysis')}
                             title="Operaciones de Análisis"
                         >
-                            <BarChart3 size={20} />
-                            {isSidebarHovered && <span className="nav-label">Análisis</span>}
+                            <Activity size={20} />
                         </div>
 
                         <div 
@@ -2475,7 +2479,6 @@ export default function App() {
                             title="Gestión de Modelos"
                         >
                             <Cloud size={20} />
-                            {isSidebarHovered && <span className="nav-label">Modelos</span>}
                         </div>
 
                         <div 
@@ -2484,7 +2487,6 @@ export default function App() {
                             title="Configuración de Sistema"
                         >
                             <Settings size={20} />
-                            {isSidebarHovered && <span className="nav-label">Ajustes</span>}
                         </div>
 
                         <div 
@@ -2492,8 +2494,16 @@ export default function App() {
                             onClick={() => setActiveMenu('diag')}
                             title="Diagnóstico y Soporte"
                         >
-                            <ShieldAlert size={20} />
-                            {isSidebarHovered && <span className="nav-label">Diagnóstico</span>}
+                            <DiagIcon size={20} />
+                        </div>
+
+                        <div 
+                            className={`nav-item ${activeMenu === 'indicators' ? 'active' : ''}`}
+                            onClick={() => setActiveMenu('indicators')}
+                            title="Indicadores"
+                            style={{ marginBottom: '10px' }}
+                        >
+                            <Gauge size={20} />
                         </div>
 
                         <div 
@@ -2507,7 +2517,6 @@ export default function App() {
                             }}
                         >
                             <Bluetooth size={20} style={{ color: '#38bdf8' }} />
-                            {isSidebarHovered && <span className="nav-label" style={{ color: '#38bdf8', fontWeight: '950' }}>CONECTAR</span>}
                         </div>
 
                         <div 
@@ -2522,7 +2531,6 @@ export default function App() {
                             }}
                         >
                             <PowerOff size={20} style={{ color: '#ef4444' }} />
-                            {isSidebarHovered && <span className="nav-label" style={{ color: '#ef4444', fontWeight: '950' }}>DESCONECTAR</span>}
                         </div>
                     </div>
                 </nav>
@@ -2538,26 +2546,6 @@ export default function App() {
                                 transition={{ duration: 0.2 }}
                                 style={{ height: '100%', overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: '15px' }}
                             >
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '12px' }}>
-                                    {[
-                                        { label: 'CANAL DATOS', val: appStatus.mode, icon: <Activity size={10} /> },
-                                        { label: 'INT. (MS)', val: appStatus.exp.toFixed(1), icon: <Clock size={10} /> },
-                                        { label: 'TEMP', val: `${appStatus.temp.toFixed(1)}°C`, icon: <Thermometer size={10} /> },
-                                        { label: 'BATERÍA', val: `${appStatus.batt} %`, icon: <Battery size={10} /> },
-                                        { label: 'PRODUCTO', val: models.find(m => m.id === selectedModelIds[0])?.product || 'NONE', icon: <Database size={10} /> },
-                                    ].map((m, i) => (
-                                        <div key={i} className="ind-panel m-glow-blue" style={{ display: 'flex', flexDirection: 'column', gap: '6px', padding: '10px' }}>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                <span style={{ fontSize: '0.55rem', color: '#38bdf8', fontWeight: '900', letterSpacing: '0.05em' }}>{m.label}</span>
-                                                {m.icon}
-                                            </div>
-                                            <div className="ind-inset" style={{ textAlign: 'center', padding: '6px 0' }}>
-                                                <span style={{ fontSize: '1rem', fontWeight: '900', color: '#fff', fontFamily: 'var(--mono)' }}>{m.val}</span>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-
                     <div id="progressContainer" style={{display:'none', background:'rgba(0,184,217,0.05)', borderRadius:'6px', padding:'12px', border:'1px solid rgba(0,184,217,0.1)', marginBottom:'0px'}}>
                         <div style={{display:'flex', justifyContent:'space-between', marginBottom:'10px'}}>
                             <span className="label" style={{fontSize:'0.75rem', color:'var(--primary)', fontFamily:'Share Tech Mono', fontWeight:'bold'}}>PROGRESO DE INTEGRACIÓN</span>
@@ -2862,6 +2850,41 @@ export default function App() {
                                         </div>
                                     </div>
                                 )}
+                            </motion.div>
+                        )}
+
+                        {activeMenu === 'indicators' && (
+                            <motion.div 
+                                key="indicators"
+                                initial={{ opacity: 0, x: 20 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                exit={{ opacity: 0, x: -20 }}
+                                transition={{ duration: 0.2 }}
+                                style={{ height: '100%', overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: '20px' }}
+                            >
+                                <div style={{ marginBottom: '10px' }}>
+                                    <h2 style={{ fontSize: '1.5rem', fontWeight: '950', color: '#fff' }}>INDICADORES DEL SISTEMA</h2>
+                                    <p style={{ fontSize: '0.75rem', color: '#38bdf8', fontWeight: '800' }}>Estado y métricas en tiempo real del dispositivo.</p>
+                                </div>
+
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '15px' }}>
+                                    {[
+                                        { label: 'CANAL DATOS', val: appStatus.mode, icon: <Activity size={16} /> },
+                                        { label: 'INT. (MS)', val: appStatus.exp.toFixed(1), icon: <Clock size={16} /> },
+                                        { label: 'TEMPERATURA', val: `${appStatus.temp.toFixed(1)}°C`, icon: <Thermometer size={16} /> },
+                                        { label: 'BATERÍA', val: `${appStatus.batt} %`, icon: <Battery size={16} /> }
+                                    ].map((m, i) => (
+                                        <div key={i} className="ind-panel m-glow-blue" style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '20px' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                <span style={{ fontSize: '0.75rem', color: '#38bdf8', fontWeight: '900', letterSpacing: '0.05em' }}>{m.label}</span>
+                                                {m.icon}
+                                            </div>
+                                            <div className="ind-inset" style={{ textAlign: 'center', padding: '15px 0' }}>
+                                                <span style={{ fontSize: '1.8rem', fontWeight: '950', color: '#fff', fontFamily: 'var(--mono)' }}>{m.val}</span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
                             </motion.div>
                         )}
 
