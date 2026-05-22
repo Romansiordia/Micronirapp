@@ -2436,14 +2436,8 @@ export default function App() {
         <>
             <header className="ind-panel" style={{ borderBottom: '1px solid rgba(14, 165, 233, 0.2)', marginBottom: '0', borderRadius: '0' }}>
                 <div className="logo" style={{ cursor: 'pointer' }} onClick={() => setActiveMenu('analysis')}>
-                    <div className="logo-icon">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--secondary)" strokeWidth="3">
-                            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
-                        </svg>
-                    </div>
-                    <div>
-                        <div className="logo-text">Spectra<span>Nir</span></div>
-                        <div style={{ fontSize: '0.6rem', color: '#38bdf8', fontWeight: '800', opacity: 0.6 }}>RSS</div>
+                    <div style={{ display: 'flex', alignItems: 'center' }}>
+                        <img src="/logo.png" alt="SpectraNir Logo" style={{ height: '64px', objectFit: 'contain' }} onError={(e) => { e.currentTarget.style.display = 'none'; }} />
                     </div>
                 </div>
 
