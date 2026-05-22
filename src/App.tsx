@@ -298,13 +298,32 @@ class MicroNIRApp {
                             }
                         }
                     },
+                    interaction: {
+                        mode: 'nearest',
+                        axis: 'xy',
+                        intersect: false
+                    },
                     plugins: {
                         legend: { display: false },
                         tooltip: {
                             enabled: true,
                             backgroundColor: 'rgba(15, 23, 42, 0.9)',
-                            titleFont: { size: 11 },
-                            bodyFont: { size: 11 }
+                            titleFont: { size: 12, family: 'Inter', weight: 'bold' },
+                            bodyFont: { size: 11, family: 'Inter' },
+                            padding: 10,
+                            callbacks: {
+                                title: function(tooltipItems: any) {
+                                    if (!tooltipItems.length) return '';
+                                    return `${tooltipItems[0].label} nm`;
+                                },
+                                label: function(context: any) {
+                                    const sampleId = context.dataset.label || 'Espectro';
+                                    return `ID: ${sampleId}`;
+                                },
+                                afterLabel: function(context: any) {
+                                    return `Val: ${context.parsed.y.toFixed(4)}`;
+                                }
+                            }
                         }
                     }
                 }
@@ -1388,7 +1407,7 @@ class MicroNIRApp {
         // Deprecated - Handled by React
     }
 
-    updateChart(data: number[], pixelCount = 125, forcedMode?: 'abs' | 'counts') {
+    updateChart(data: number[], pixelCount = 125, forcedMode?: 'abs' | 'counts', label?: string) {
         if (!data || data.length === 0) return;
         
         const canvas = document.getElementById('nirChart') as HTMLCanvasElement;
@@ -1417,6 +1436,7 @@ class MicroNIRApp {
 
             this.chart.data.labels = labels;
             this.chart.data.datasets[0].data = cleanData;
+            this.chart.data.datasets[0].label = label || 'Espectro';
 
             const isAbs = forcedMode === 'abs' || (forcedMode !== 'counts' && this.showAbsorbance);
             
@@ -2357,7 +2377,7 @@ export default function App() {
         if (viewedHistoryItem && appRef.current) {
             const dataToShow = viewedHistoryItem.absData || viewedHistoryItem.data;
             const isAbs = !!viewedHistoryItem.absData;
-            appRef.current.updateChart(dataToShow, dataToShow.length, isAbs ? 'abs' : 'counts');
+            appRef.current.updateChart(dataToShow, dataToShow.length, isAbs ? 'abs' : 'counts', viewedHistoryItem.id);
         }
     }, [viewedHistoryItem]);
 
