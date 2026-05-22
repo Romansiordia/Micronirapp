@@ -2276,10 +2276,10 @@ export default function App() {
         const tableRows: any[] = [];
         if (item.allPredictions) {
             item.allPredictions.forEach((p: any) => {
-                tableRows.push([p.property.toUpperCase(), `${p.value.toFixed(2)} ${p.unit || '%'}`, p.gh.toFixed(2), p.gh >= 4 ? 'Fuera de Rango' : p.gh > 3 ? 'Advertencia' : 'Válido']);
+                tableRows.push([p.property.toUpperCase(), `${p.value.toFixed(2)} ${p.unit || '%'}`, p.gh.toFixed(2), p.gh >= 4 ? 'Fuera de Rango' : 'Válido']);
             });
         } else if (item.prediction !== undefined) {
-            tableRows.push([(item.propName || 'Proteína').toUpperCase(), `${item.prediction.toFixed(2)} ${item.unit || '%'}`, item.gh.toFixed(2), item.gh >= 4 ? 'Fuera de Rango' : item.gh > 3 ? 'Advertencia' : 'Válido']);
+            tableRows.push([(item.propName || 'Proteína').toUpperCase(), `${item.prediction.toFixed(2)} ${item.unit || '%'}`, item.gh.toFixed(2), item.gh >= 4 ? 'Fuera de Rango' : 'Válido']);
         }
         
         autoTable(doc, {
@@ -2761,11 +2761,11 @@ export default function App() {
                                                             <div style={{ fontSize: '0.55rem', color: '#64748b', fontWeight: '900' }}>GH: {res.gh?.toFixed(2)}</div>
                                                             <div style={{ 
                                                                 fontSize: '0.55rem', 
-                                                                color: res.gh >= 4 ? '#ef4444' : res.gh > 3 ? '#fb923c' : '#4ade80', 
+                                                                color: res.gh >= 4 ? '#ef4444' : '#4ade80', 
                                                                 fontWeight: '950',
                                                                 letterSpacing: '0.05em'
                                                             }}>
-                                                                {res.gh >= 4 ? 'OUTLIER' : res.gh > 3 ? 'ADVERTENCIA' : 'VÁLIDO'}
+                                                                {res.gh >= 4 ? 'OUTLIER' : 'VÁLIDO'}
                                                             </div>
                                                         </div>
                                                     </div>
