@@ -2740,7 +2740,8 @@ export default function App() {
                         display: 'flex', 
                         gap: '12px', 
                         padding: '12px', 
-                        alignItems: 'stretch' 
+                        alignItems: 'stretch',
+                        flexShrink: 0
                     }}>
                         <div style={{ 
                             display: 'flex', 
@@ -2835,7 +2836,7 @@ export default function App() {
                         </button>
                     </div>
 
-                    <div className="dashboard-main" style={{ display: 'flex', gap: '15px', height: '620px', minHeight: '620px' }}>
+                    <div className="dashboard-main" style={{ display: 'flex', gap: '15px', height: '620px', minHeight: '620px', flexShrink: 0 }}>
                         {/* LADO IZQUIERDO: ESPECTRO */}
                         <div className="ind-panel" style={{ flex: 7, display: 'flex', flexDirection: 'column', padding: '15px', overflow: 'hidden' }}>
                             <div className="chart-hdr" style={{ marginBottom: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -2963,7 +2964,7 @@ export default function App() {
                     </div>
 
                     {/* HISTORY PANEL WAS HERE */}
-                                <div className="ind-panel mb-15" style={{ height: '220px', display: 'flex', flexDirection: 'column', padding: '12px', marginTop: '15px' }}>
+                                <div className="ind-panel mb-15" style={{ height: '280px', minHeight: '280px', flexShrink: 0, display: 'flex', flexDirection: 'column', padding: '12px', marginTop: '15px' }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                             <Database size={14} style={{ color: '#38bdf8' }} />
@@ -3075,7 +3076,7 @@ export default function App() {
                                         
                                         {cloudFolders.length > 0 && (
                                             <div style={{ marginTop: '20px', animation: 'fadeIn 0.3s' }}>
-                                                <div style={{ fontSize: '0.65rem', color: '#38bdf8', fontWeight: '900', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>SELECCIONAR MATERIA PRIMA</div>
+                                                <div style={{ fontSize: '0.65rem', color: '#38bdf8', fontWeight: '900', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>SELECCIONAR CARPETA EN LA NUBE</div>
                                                 <div style={{ position: 'relative' }}>
                                                     <select 
                                                         value={selectedFolder}
