@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, ChangeEvent } from 'react';
 import { Chart, registerables } from 'chart.js';
 import { Cpu, Clock, Thermometer, Battery, Activity, Moon, Sun, Zap, Lock, Unlock, PowerOff, Database, FileJson, ChevronDown, Plus, Trash2, Printer, Settings, BarChart3, ShieldAlert, LayoutDashboard, Search, Link as LinkIcon, RefreshCw, Bluetooth, Usb, Cloud, LayoutList, Wheat, Sprout, Leaf, Flower2, FlaskConical, Beef, Fish, Package, Gauge } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -2085,6 +2085,15 @@ export default function App() {
         return saved ? JSON.parse(saved) : [];
     });
 
+    const [showSplash, setShowSplash] = useState(true);
+
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            setShowSplash(false);
+        }, 3000);
+        return () => clearTimeout(timer);
+    }, []);
+
     const uniqueProducts = Array.from(new Set(models.map(m => m.product))).sort();
     
     // Cloud Library State
@@ -2132,7 +2141,7 @@ export default function App() {
         }
     };
 
-    const loadLocalModel = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const loadLocalModel = (e: ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
 
@@ -2434,6 +2443,53 @@ export default function App() {
 
     return (
         <>
+            <AnimatePresence>
+                {showSplash && (
+                    <motion.div
+                        initial={{ opacity: 1 }}
+                        exit={{ opacity: 0, scale: 0.95 }}
+                        transition={{ duration: 0.8, ease: "easeInOut" }}
+                        style={{
+                            position: 'fixed',
+                            inset: 0,
+                            zIndex: 9999,
+                            background: '#0f172a',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center'
+                        }}
+                    >
+                        <motion.img 
+                            src="/logo.png" 
+                            alt="SpectraNir Logo" 
+                            initial={{ scale: 0.8, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            transition={{ duration: 1.2, ease: "easeOut" }}
+                            style={{ maxWidth: '600px', width: '80%', objectFit: 'contain' }} 
+                        />
+                        <motion.div
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: 0.5, duration: 1 }}
+                            style={{ 
+                                marginTop: '40px',
+                                width: '40px',
+                                height: '2px',
+                                background: 'rgba(56, 189, 248, 0.5)',
+                                overflow: 'hidden'
+                            }}
+                        >
+                            <motion.div
+                                initial={{ x: '-100%' }}
+                                animate={{ x: '100%' }}
+                                transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}
+                                style={{ width: '100%', height: '100%', background: '#38bdf8' }}
+                            />
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
             <header className="ind-panel" style={{ borderBottom: '1px solid rgba(14, 165, 233, 0.2)', marginBottom: '0', borderRadius: '0' }}>
                 <div className="logo" style={{ cursor: 'pointer' }} onClick={() => setActiveMenu('analysis')}>
                     <div style={{ display: 'flex', alignItems: 'center' }}>
