@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useEffect, useRef, useState, ChangeEvent } from 'react';
+import { useEffect, useRef, useState, ChangeEvent, FormEvent } from 'react';
 import { Chart, registerables } from 'chart.js';
 import { Cpu, Clock, Thermometer, Battery, Activity, Moon, Sun, Zap, Lock, Unlock, PowerOff, Database, FileJson, ChevronDown, Plus, Trash2, Printer, Settings, BarChart3, ShieldAlert, LayoutDashboard, Search, Link as LinkIcon, RefreshCw, Bluetooth, Usb, Cloud, LayoutList, Wheat, Sprout, Leaf, Flower2, FlaskConical, Beef, Fish, Package, Gauge } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -2086,6 +2086,13 @@ export default function App() {
     });
 
     const [showSplash, setShowSplash] = useState(true);
+    const [isAuthenticated, setIsAuthenticated] = useState(false);
+    const [loginUser, setLoginUser] = useState('');
+    const [loginPass, setLoginPass] = useState('');
+    const [isLoggingIn, setIsLoggingIn] = useState(false);
+    const [loginError, setLoginError] = useState('');
+    const [apiUrl, setApiUrl] = useState(() => localStorage.getItem('mn_api_url') || '');
+    const [showApiConfig, setShowApiConfig] = useState(false);
 
     useEffect(() => {
         const timer = setTimeout(() => {
@@ -2093,6 +2100,42 @@ export default function App() {
         }, 3000);
         return () => clearTimeout(timer);
     }, []);
+
+    useEffect(() => {
+        localStorage.setItem('mn_api_url', apiUrl);
+    }, [apiUrl]);
+
+    const handleLogin = async (e: FormEvent) => {
+        e.preventDefault();
+        setIsLoggingIn(true);
+        setLoginError('');
+
+        if (loginUser === 'admin' && loginPass === 'admin') {
+            setIsAuthenticated(true);
+            setIsLoggingIn(false);
+            return;
+        }
+
+        if (!apiUrl) {
+            setLoginError('Falta la URL del API de Google Sheets en Configuración.');
+            setIsLoggingIn(false);
+            return;
+        }
+
+        try {
+            const res = await fetch(`${apiUrl}?username=${encodeURIComponent(loginUser)}&password=${encodeURIComponent(loginPass)}`);
+            const data = await res.json();
+            
+            if (data.success) {
+                setIsAuthenticated(true);
+            } else {
+                setLoginError(data.message || 'Credenciales incorrectas');
+            }
+        } catch (err) {
+            setLoginError('Error de conexión. Verifica la URL del API.');
+        }
+        setIsLoggingIn(false);
+    };
 
     const uniqueProducts = Array.from(new Set(models.map(m => m.product))).sort();
     
@@ -2490,7 +2533,90 @@ export default function App() {
                     </motion.div>
                 )}
             </AnimatePresence>
-            <header className="ind-panel" style={{ borderBottom: '1px solid rgba(14, 165, 233, 0.2)', marginBottom: '0', borderRadius: '0' }}>
+
+            {!showSplash && !isAuthenticated && (
+                <div style={{ position: 'fixed', inset: 0, zIndex: 9000, background: '#080c17', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+                    <div className="ind-panel" style={{ width: '100%', maxWidth: '400px', padding: '40px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                        <div style={{ textAlign: 'center', marginBottom: '10px' }}>
+                            <img src="/logo.png" alt="SpectraNir" style={{ height: '60px', objectFit: 'contain', margin: '0 auto 20px', display: 'block' }} />
+                            <h2 style={{ fontSize: '1.2rem', fontWeight: '950', color: '#fff', letterSpacing: '0.05em' }}>ACCESO RESTRINGIDO</h2>
+                            <p style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: '800' }}>Ingrese sus credenciales para continuar</p>
+                        </div>
+                        
+                        <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                            <div>
+                                <label style={{ display: 'block', fontSize: '0.65rem', color: '#38bdf8', fontWeight: '900', marginBottom: '8px', letterSpacing: '0.05em' }}>USUARIO</label>
+                                <input 
+                                    type="text" 
+                                    value={loginUser}
+                                    onChange={(e) => setLoginUser(e.target.value)}
+                                    placeholder="Ingrese nombre de usuario"
+                                    style={{ width: '100%', background: 'rgba(14, 165, 233, 0.05)', color: '#fff', border: '1px solid rgba(14, 165, 233, 0.4)', borderRadius: '10px', padding: '12px 15px', fontSize: '0.85rem', outline: 'none' }}
+                                    required
+                                />
+                            </div>
+                            <div>
+                                <label style={{ display: 'block', fontSize: '0.65rem', color: '#38bdf8', fontWeight: '900', marginBottom: '8px', letterSpacing: '0.05em' }}>CONTRASEÑA</label>
+                                <input 
+                                    type="password" 
+                                    value={loginPass}
+                                    onChange={(e) => setLoginPass(e.target.value)}
+                                    placeholder="••••••••"
+                                    style={{ width: '100%', background: 'rgba(14, 165, 233, 0.05)', color: '#fff', border: '1px solid rgba(14, 165, 233, 0.4)', borderRadius: '10px', padding: '12px 15px', fontSize: '0.85rem', outline: 'none' }}
+                                    required
+                                />
+                            </div>
+                            
+                            {loginError && (
+                                <div style={{ fontSize: '0.75rem', color: '#ef4444', fontWeight: '800', textAlign: 'center', background: 'rgba(239, 68, 68, 0.1)', padding: '10px', borderRadius: '8px' }}>
+                                    {loginError}
+                                </div>
+                            )}
+
+                            <button 
+                                type="submit" 
+                                disabled={isLoggingIn}
+                                className="btn-action" 
+                                style={{ width: '100%', padding: '15px', borderRadius: '10px', fontWeight: '950', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', marginTop: '10px' }}
+                            >
+                                {isLoggingIn ? <RefreshCw size={18} className="spin" /> : <Lock size={18} />}
+                                {isLoggingIn ? 'AUTENTICANDO...' : 'INICIAR SESIÓN'}
+                            </button>
+                        </form>
+
+                        <div style={{ marginTop: '20px', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '20px' }}>
+                            <button 
+                                onClick={() => setShowApiConfig(!showApiConfig)}
+                                style={{ width: '100%', background: 'transparent', border: 'none', color: '#64748b', fontSize: '0.65rem', fontWeight: '900', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', cursor: 'pointer' }}
+                            >
+                                <Settings size={12} /> {showApiConfig ? 'OCULTAR CONFIGURACIÓN API' : 'CONFIGURACIÓN DE API (GOOGLE SHEETS)'}
+                            </button>
+                            
+                            {showApiConfig && (
+                                <div style={{ marginTop: '15px' }}>
+                                    <div className="ind-inset" style={{ padding: '15px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                        <label style={{ fontSize: '0.55rem', color: '#38bdf8', fontWeight: '900', letterSpacing: '0.05em' }}>URL DE GOOGLE APPS SCRIPT</label>
+                                        <input 
+                                            type="text" 
+                                            value={apiUrl}
+                                            onChange={(e) => setApiUrl(e.target.value)}
+                                            placeholder="https://script.google.com/macros/s/..."
+                                            style={{ width: '100%', background: '#0f172a', color: '#fff', border: '1px solid rgba(14, 165, 233, 0.4)', borderRadius: '6px', padding: '8px 10px', fontSize: '0.7rem', outline: 'none' }}
+                                        />
+                                        <div style={{ fontSize: '0.6rem', color: '#94a3b8', lineHeight: '1.4' }}>
+                                            <strong>Instrucciones:</strong> Crea un Script en Google Sheets con las funciones <code style={{ color: '#38bdf8' }}>doGet()</code> y <code style={{ color: '#38bdf8' }}>doPost()</code>, impleméntalo como Aplicación Web accesible para "Cualquiera", y pega la URL aquí.
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {!showSplash && isAuthenticated && (
+            <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', opacity: showSplash ? 0 : 1, transition: 'opacity 0.5s ease' }}>
+                <header className="ind-panel" style={{ borderBottom: '1px solid rgba(14, 165, 233, 0.2)', marginBottom: '0', borderRadius: '0' }}>
                 <div className="logo" style={{ cursor: 'pointer' }} onClick={() => setActiveMenu('analysis')}>
                     <div style={{ display: 'flex', alignItems: 'center' }}>
                         <img src="/logo.png" alt="SpectraNir Logo" style={{ height: '64px', objectFit: 'contain' }} onError={(e) => { e.currentTarget.style.display = 'none'; }} />
@@ -3338,6 +3464,8 @@ export default function App() {
                     </div>
                 </div>
             </div>
+            </div>
+            )}
         </>
     );
 }
