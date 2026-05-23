@@ -2516,19 +2516,42 @@ export default function App() {
                             animate={{ opacity: 1, y: 0 }}
                             transition={{ delay: 0.5, duration: 1 }}
                             style={{ 
-                                marginTop: '40px',
-                                width: '40px',
-                                height: '2px',
-                                background: 'rgba(56, 189, 248, 0.5)',
-                                overflow: 'hidden'
+                                marginTop: '50px',
+                                width: '240px',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                gap: '15px'
                             }}
                         >
-                            <motion.div
-                                initial={{ x: '-100%' }}
-                                animate={{ x: '100%' }}
-                                transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}
-                                style={{ width: '100%', height: '100%', background: '#38bdf8' }}
-                            />
+                            <div style={{
+                                width: '100%',
+                                height: '2px',
+                                background: 'rgba(56, 189, 248, 0.1)',
+                                borderRadius: '4px',
+                                overflow: 'hidden',
+                                position: 'relative'
+                            }}>
+                                <motion.div
+                                    initial={{ width: '0%' }}
+                                    animate={{ width: '100%' }}
+                                    transition={{ duration: 2.2, ease: "circInOut", delay: 0.5 }}
+                                    style={{ 
+                                        height: '100%', 
+                                        background: 'linear-gradient(90deg, transparent, #38bdf8, #0ea5e9)',
+                                        boxShadow: '0 0 10px rgba(56, 189, 248, 0.6)',
+                                        borderRadius: '4px'
+                                    }}
+                                />
+                            </div>
+                            <motion.div 
+                                initial={{ opacity: 0.5 }}
+                                animate={{ opacity: [0.5, 1, 0.5] }}
+                                transition={{ repeat: Infinity, duration: 1.5, ease: "easeInOut" }}
+                                style={{ fontSize: '0.6rem', color: '#38bdf8', fontWeight: '900', letterSpacing: '0.3em', textTransform: 'uppercase' }}
+                            >
+                                Iniciando Sistema
+                            </motion.div>
                         </motion.div>
                     </motion.div>
                 )}
