@@ -1636,15 +1636,10 @@ class MicroNIRApp {
             
             if (spectrum.length === 0) return;
 
-            // --- OPCIÓN A: Ajuste de Dark Scan ---
-            // Si el hardware envía un Dark casi en su totalidad de ceros,
-            // sumamos 5000 para simular el pedestal térmico del Viavi Qialitade,
-            // logrando que (S-D)/(W-D) alcance valores de Absorbancia similares y más altos.
             if (targetAtStart === 'dark') {
                 const isZeroed = spectrum.every(v => v < 100);
                 if (isZeroed) {
-                    this.log('OPCIÓN A APLICADA: Simulando pedestal térmico de ~5000 para igualar equipo Viavi.', 'log-warn');
-                    spectrum = spectrum.map(v => v + 5000);
+                    this.log('Dark scan recibido en línea de ceros de forma natural.', 'log-sys');
                 }
             }
 
