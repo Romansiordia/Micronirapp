@@ -2754,7 +2754,7 @@ export default function App() {
                                 animate={{ opacity: 1, x: 0 }}
                                 exit={{ opacity: 0, x: -20 }}
                                 transition={{ duration: 0.2 }}
-                                style={{ position: 'absolute', inset: 0, overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: '15px' }}
+                                style={{ position: 'absolute', inset: 0, overflowY: 'auto', padding: '20px', paddingBottom: '120px', display: 'flex', flexDirection: 'column', gap: '15px' }}
                             >
                     <div id="progressContainer" style={{display:'none', background:'rgba(0,184,217,0.05)', borderRadius:'6px', padding:'12px', border:'1px solid rgba(0,184,217,0.1)', marginBottom:'0px'}}>
                         <div style={{display:'flex', justifyContent:'space-between', marginBottom:'10px'}}>
@@ -3040,7 +3040,7 @@ export default function App() {
 
                                 {viewedHistoryItem && (
                                     <div className="ind-panel m-glow-gold" style={{ 
-                                        marginTop: '15px', padding: '15px', border: '1px solid #fbbf24', background: 'rgba(251, 191, 36, 0.05)', animation: 'fadeIn 0.3s ease' 
+                                        marginTop: '15px', padding: '15px', border: '1px solid #fbbf24', background: 'rgba(251, 191, 36, 0.05)', animation: 'fadeIn 0.3s ease', flexShrink: 0 
                                     }}>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
