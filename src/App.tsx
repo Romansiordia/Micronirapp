@@ -1636,6 +1636,18 @@ class MicroNIRApp {
             
             if (spectrum.length === 0) return;
 
+            // --- OPCIÓN A: Ajuste de Dark Scan ---
+            // Si el hardware envía un Dark casi en su totalidad de ceros,
+            // sumamos 5000 para simular el pedestal térmico del Viavi Qialitade,
+            // logrando que (S-D)/(W-D) alcance valores de Absorbancia similares y más altos.
+            if (targetAtStart === 'dark') {
+                const isZeroed = spectrum.every(v => v < 100);
+                if (isZeroed) {
+                    this.log('OPCIÓN A APLICADA: Simulando pedestal térmico de ~5000 para igualar equipo Viavi.', 'log-warn');
+                    spectrum = spectrum.map(v => v + 5000);
+                }
+            }
+
             // --- LÓGICA DE PROMEDIADO MULTI-PUNTO (4 Escaneos para Muestra) ---
             if (this.isAveragingInProgress && targetAtStart === 'sample') {
                 this.multiScanBuffer.push([...spectrum]);
@@ -2747,7 +2759,7 @@ export default function App() {
                                 animate={{ opacity: 1, x: 0 }}
                                 exit={{ opacity: 0, x: -20 }}
                                 transition={{ duration: 0.2 }}
-                                style={{ height: '100%', overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: '15px' }}
+                                style={{ position: 'absolute', inset: 0, overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: '15px' }}
                             >
                     <div id="progressContainer" style={{display:'none', background:'rgba(0,184,217,0.05)', borderRadius:'6px', padding:'12px', border:'1px solid rgba(0,184,217,0.1)', marginBottom:'0px'}}>
                         <div style={{display:'flex', justifyContent:'space-between', marginBottom:'10px'}}>
@@ -3064,14 +3076,14 @@ export default function App() {
                                 animate={{ opacity: 1, scale: 1 }}
                                 exit={{ opacity: 0, scale: 0.98 }}
                                 transition={{ duration: 0.25, ease: "easeOut" }}
-                                style={{ height: '100%', overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: '20px' }}
+                                style={{ position: 'absolute', inset: 0, overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: '20px' }}
                             >
-                                <div style={{ marginBottom: '10px' }}>
+                                <div style={{ marginBottom: '10px', flexShrink: 0 }}>
                                     <h2 style={{ fontSize: '1.5rem', fontWeight: '950', color: '#fff' }}>GESTIÓN DE MODELOS</h2>
                                     <p style={{ fontSize: '0.75rem', color: '#38bdf8', fontWeight: '800' }}>Sincronice y administre su librería de modelos predictivos.</p>
                                 </div>
 
-                                <div className="ind-panel" style={{ padding: '25px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                                <div className="ind-panel" style={{ padding: '25px', display: 'flex', flexDirection: 'column', gap: '20px', flexShrink: 0 }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                                         <Cloud size={24} style={{ color: '#38bdf8' }} />
                                         <span style={{ fontWeight: '950', fontSize: '1rem', color: '#fff' }}>MODELOS EN LA NUBE</span>
@@ -3115,7 +3127,7 @@ export default function App() {
                                         )}
                                     </div>
 
-                                    <div className="ind-inset" style={{ padding: '20px', borderRadius: '14px', marginTop: '10px' }}>
+                                    <div className="ind-inset" style={{ padding: '20px', borderRadius: '14px', marginTop: '10px', flexShrink: 0 }}>
                                         <div style={{ fontSize: '0.65rem', color: '#38bdf8', fontWeight: '900', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>CARGAR MODELO LOCAL</div>
                                         <div style={{ display: 'flex', alignItems: 'center' }}>
                                             <label style={{ cursor: 'pointer', background: 'rgba(14, 165, 233, 0.15)', color: '#38bdf8', border: '1px solid rgba(14, 165, 233, 0.4)', borderRadius: '10px', padding: '12px 20px', fontSize: '0.8rem', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '8px', transition: 'all 0.2s' }}>
@@ -3125,14 +3137,14 @@ export default function App() {
                                         </div>
                                     </div>
 
-                                    <div style={{ marginTop: '10px' }}>
+                                    <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '15px' }}>
                                             <Database size={18} style={{ color: '#38bdf8' }} />
                                             <span style={{ fontWeight: '950', fontSize: '0.85rem', color: '#fff' }}>LIBRERÍA LOCAL DE MODELOS</span>
                                             <span style={{ fontSize: '0.6rem', color: '#94a3b8', marginLeft: 'auto' }}>({models.length} modelos cargados)</span>
                                         </div>
 
-                                        <div className="ind-inset" style={{ minHeight: '300px', padding: '15px', overflowY: 'auto' }}>
+                                        <div className="ind-inset" style={{ padding: '15px', flexShrink: 0 }}>
                                             {models.length === 0 ? (
                                                 <div style={{ height: '200px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.15)', gap: '15px' }}>
                                                     <Database size={48} />
@@ -3228,7 +3240,7 @@ export default function App() {
                                 animate={{ opacity: 1, scale: 1 }}
                                 exit={{ opacity: 0, scale: 0.98 }}
                                 transition={{ duration: 0.25, ease: "easeOut" }}
-                                style={{ height: '100%', overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: '20px' }}
+                                style={{ position: 'absolute', inset: 0, overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: '20px' }}
                             >
                                 <div style={{ marginBottom: '10px' }}>
                                     <h2 style={{ fontSize: '1.5rem', fontWeight: '950', color: '#fff' }}>PANEL DE CONFIGURACIÓN</h2>
@@ -3270,7 +3282,7 @@ export default function App() {
                                 animate={{ opacity: 1, scale: 1 }}
                                 exit={{ opacity: 0, scale: 0.98 }}
                                 transition={{ duration: 0.25, ease: "easeOut" }}
-                                style={{ height: '100%', overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: '20px' }}
+                                style={{ position: 'absolute', inset: 0, overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: '20px' }}
                             >
                                 <div style={{ marginBottom: '10px' }}>
                                     <h2 style={{ fontSize: '1.5rem', fontWeight: '950', color: '#fff' }}>SISTEMA DE DIAGNÓSTICO</h2>
