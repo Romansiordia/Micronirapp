@@ -191,7 +191,16 @@ class MicroNIRApp {
 
         this.lastSpectrum  = [];
         this.lastScanTime  = 0;
-        this.referenceData = { dark: null, white: null };
+        this.referenceData = { dark: [
+            4887.2, 4885.1, 4876.4, 4881.7, 4882.2, 4879.5, 4879.6, 4902.4, 4872.2, 4880, 4884.2, 4883.2, 4877.8, 4882.7, 4875.3, 4879.4,
+            4875, 4877.1, 4879.4, 4874.3, 4871.4, 4877.4, 4875.1, 4864.5, 4871.9, 4873.5, 4867.2, 4883.1, 4869.9, 4868.6, 4868, 4870.4,
+            4865.3, 4873.2, 4866.6, 4860.4, 4866.8, 4874, 4862.7, 4861.4, 4871.7, 4860.1, 4871.5, 4865.8, 4861, 4866.2, 4871.9, 4867.5,
+            4868.6, 4863.6, 4860.2, 4873.4, 4869.3, 4853.3, 4864.4, 4869.6, 4869.9, 4864.8, 4875.3, 4855.2, 4876.1, 4865.3, 4858.5, 4868.4,
+            4868.5, 4860, 4865.7, 4864.3, 4859.8, 4864.5, 4866.4, 4857, 4866.9, 4866.1, 4862.5, 4869.2, 4873.3, 4860.6, 4872.8, 4870.7,
+            4857.8, 4857.4, 4870.1, 4861.2, 4870.4, 4861, 4867.8, 4870.6, 4867.9, 4863.3, 4865.5, 4867.5, 4861.4, 4867.9, 4868.1, 4865.3,
+            4871.3, 4868.5, 4864, 4869.4, 4866.5, 4860.2, 4865.5, 4867.8, 4864.2, 4873.4, 4865, 4867.8, 4870.5, 4863.3, 4872.4, 4874.1,
+            4875.6, 4875.9, 4871.7, 4878.8, 4872.4, 4875.7, 4869.2, 4872, 4873.5, 4872.5, 4880.4, 4871.4, 4873, 4871.7, 4872.7, 4890.4
+        ], white: null };
         this.scanCounter = 0;
         this.showAbsorbance = false;
         this.pktCount      = 0;
@@ -2081,7 +2090,7 @@ const getProductIcon = (productName: string) => {
 
 export default function App() {
     const appRef = useRef<MicroNIRApp | null>(null);
-    const [calib, setCalib] = useState({ dark: false, white: false });
+    const [calib, setCalib] = useState({ dark: true, white: false });
     const [models, setModels] = useState<PredictionModel[]>(() => {
         const saved = localStorage.getItem('mn_models');
         return saved ? JSON.parse(saved) : [];
