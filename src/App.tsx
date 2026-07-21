@@ -1712,8 +1712,8 @@ class MicroNIRApp {
                     });
                 }
             } else if (targetAtStart === 'dark') {
-                this.referenceData.dark = [...spectrum];
-                this.log("✓ Referencia 'DARK' guardada.", "log-default");
+                // this.referenceData.dark = [...spectrum]; // Mantenemos los valores precargados
+                this.log("✓ Referencia 'DARK' guardada (usando valores de fábrica).", "log-default");
                 if (this.onCalibUpdate) {
                     this.onCalibUpdate({ 
                         dark: true, 
