@@ -2446,6 +2446,9 @@ export default function App() {
             const dataToShow = viewedHistoryItem.absData || viewedHistoryItem.data;
             const isAbs = !!viewedHistoryItem.absData;
             appRef.current.updateChart(dataToShow, dataToShow.length, isAbs ? 'abs' : 'counts', viewedHistoryItem.id);
+            if (viewedHistoryItem.allPredictions && viewedHistoryItem.allPredictions.length > 0) {
+                setPredictionResults(viewedHistoryItem.allPredictions);
+            }
         }
     }, [viewedHistoryItem]);
 
@@ -2499,6 +2502,7 @@ export default function App() {
     }, [activeMenu]);
 
     const app = () => appRef.current;
+    const activeSample = viewedHistoryItem || (history.length > 0 ? history.find((h: any) => h.id && !h.name?.startsWith('Ref_')) || history[0] : null);
 
     return (
         <>
@@ -2942,8 +2946,8 @@ export default function App() {
                                     </div>
                                 ) : (
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-                                        {/* Cabecera del Producto */}
-                                        <div style={{ paddingBottom: '10px', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        {/* Cabecera del Producto e ID de Muestra */}
+                                        <div style={{ paddingBottom: '10px', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                                             <div>
                                                 <div style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: '800', letterSpacing: '0.05em' }}>MUESTRA(S) SELECCIONADA(S)</div>
                                                 <div style={{ fontSize: '1rem', fontWeight: '950', color: '#fff', letterSpacing: '-0.02em' }}>
@@ -2951,49 +2955,75 @@ export default function App() {
                                                         ? models.find(m => m.id === selectedModelIds[0])?.product 
                                                         : 'ANÁLISIS MÚLTIPLE'}
                                                 </div>
+                                                {activeSample?.name && activeSample.name !== activeSample.id && !activeSample.name.startsWith('Ref_') && (
+                                                    <div style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.6)', fontWeight: '700', marginTop: '1px' }}>
+                                                        Muestra: {activeSample.name} {activeSample.lot ? `| Lote: ${activeSample.lot}` : ''}
+                                                    </div>
+                                                )}
                                             </div>
-                                            <Activity size={16} style={{ color: '#64748b' }} />
+                                            <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                                                <div style={{ fontSize: '0.55rem', color: '#38bdf8', fontWeight: '800', letterSpacing: '0.05em' }}>ID DE MUESTRA</div>
+                                                <div style={{ fontSize: '0.85rem', fontWeight: '950', color: '#38bdf8', background: 'rgba(56, 189, 248, 0.12)', padding: '2px 8px', borderRadius: '6px', border: '1px solid rgba(56, 189, 248, 0.25)', marginTop: '2px' }}>
+                                                    {activeSample?.id ? `ID: ${activeSample.id}` : 'ID: —'}
+                                                </div>
+                                            </div>
                                         </div>
 
                                         <div className="result-display" style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '10px', minHeight: '30px', position: 'relative' }}>
                                             {isPredicting ? (
                                                 <div className="blink" style={{ fontSize: '0.8rem', color: '#00d2ff', fontWeight: '900', letterSpacing: '0.15em', textAlign: 'center', padding: '20px' }}>ANALIZANDO...</div>
                                             ) : predictionResults.length > 0 ? (
-                                                predictionResults.map((res, idx) => (
-                                                    <div key={idx} style={{ 
-                                                        display: 'flex', 
-                                                        alignItems: 'center', 
-                                                        gap: '15px', 
-                                                        padding: '12px', 
-                                                        background: 'rgba(56, 189, 248, 0.05)', 
-                                                        borderRadius: '12px', 
-                                                        border: '1px solid rgba(56, 189, 248, 0.1)' 
-                                                    }}>
-                                                        <div style={{ padding: '8px', background: 'rgba(56, 189, 248, 0.1)', borderRadius: '10px' }}>
-                                                            <Activity size={18} style={{ color: '#38bdf8' }} />
-                                                        </div>
-                                                        <div style={{ flex: 1 }}>
-                                                            <div style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: '800' }}>{res.property.toUpperCase()}</div>
-                                                            <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
-                                                                <span style={{ fontSize: '1.4rem', fontWeight: '950', color: '#fff' }}>{res.value.toFixed(1)}</span>
-                                                                <span style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.5)', fontWeight: '900' }}>%</span>
-                                                            </div>
-                                                        </div>
-                                                        <div style={{ textAlign: 'right' }}>
-                                                            <div style={{ fontSize: '0.55rem', color: '#64748b', fontWeight: '900' }}>GH: {res.gh?.toFixed(2)}</div>
-                                                            <div style={{ 
-                                                                fontSize: '0.55rem', 
-                                                                color: res.gh >= 4 ? '#ef4444' : '#4ade80', 
-                                                                fontWeight: '950',
-                                                                letterSpacing: '0.05em'
+                                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '8px' }}>
+                                                    {predictionResults.map((res: any, idx: number) => {
+                                                        const propName = res.property || res.propertyName || 'PARÁMETRO';
+                                                        const val = typeof res.value === 'number' ? res.value.toFixed(2) : res.value;
+                                                        const ghVal = res.gh !== undefined ? res.gh : res.goodnessFit;
+                                                        const isOutlier = ghVal !== undefined && ghVal >= 4;
+
+                                                        return (
+                                                            <div key={idx} style={{ 
+                                                                display: 'flex', 
+                                                                flexDirection: 'column',
+                                                                justify: 'space-between', 
+                                                                padding: '8px 10px', 
+                                                                background: 'rgba(15, 23, 42, 0.65)', 
+                                                                borderRadius: '8px', 
+                                                                border: isOutlier ? '1px solid rgba(239, 68, 68, 0.35)' : '1px solid rgba(56, 189, 248, 0.18)',
+                                                                boxShadow: '0 2px 6px rgba(0, 0, 0, 0.25)'
                                                             }}>
-                                                                {res.gh >= 4 ? 'OUTLIER' : 'VÁLIDO'}
+                                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '4px', marginBottom: '4px' }}>
+                                                                    <span style={{ fontSize: '0.58rem', color: '#94a3b8', fontWeight: '800', letterSpacing: '0.04em', textTransform: 'uppercase', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                                        {propName}
+                                                                    </span>
+                                                                    <span style={{ 
+                                                                        fontSize: '0.5rem', 
+                                                                        padding: '1px 4px', 
+                                                                        borderRadius: '4px', 
+                                                                        fontWeight: '900',
+                                                                        background: isOutlier ? 'rgba(239, 68, 68, 0.2)' : 'rgba(74, 222, 128, 0.12)',
+                                                                        color: isOutlier ? '#f87171' : '#4ade80',
+                                                                        border: `1px solid ${isOutlier ? 'rgba(239, 68, 68, 0.35)' : 'rgba(74, 222, 128, 0.25)'}`,
+                                                                        whiteSpace: 'nowrap'
+                                                                    }}>
+                                                                        GH: {ghVal !== undefined && ghVal !== null ? Number(ghVal).toFixed(2) : 'N/A'}
+                                                                    </span>
+                                                                </div>
+                                                                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+                                                                    <span style={{ fontSize: '1.2rem', fontWeight: '950', color: '#ffffff', letterSpacing: '-0.02em' }}>
+                                                                        {val}
+                                                                    </span>
+                                                                    <span style={{ fontSize: '0.65rem', fontWeight: '900', color: '#38bdf8' }}>
+                                                                        {res.unit || '%'}
+                                                                    </span>
+                                                                </div>
                                                             </div>
-                                                        </div>
-                                                    </div>
-                                                ))
+                                                        );
+                                                    })}
+                                                </div>
                                             ) : (
-                                                <div style={{ opacity: 0.1, fontSize: '1.5rem', fontWeight: '950', letterSpacing: '0.2em', textAlign: 'center', padding: '20px' }}>ESPERANDO</div>
+                                                <div style={{ opacity: 0.2, fontSize: '0.75rem', fontWeight: '800', letterSpacing: '0.1em', textAlign: 'center', padding: '20px', color: '#94a3b8' }}>
+                                                    ESPERANDO ANÁLISIS
+                                                </div>
                                             )}
                                         </div>
                                     </div>
