@@ -2970,8 +2970,100 @@ export default function App() {
                                         </div>
 
                                         <div className="result-display" style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '10px', minHeight: '30px', position: 'relative' }}>
-                                            {isPredicting ? (
-                                                <div className="blink" style={{ fontSize: '0.8rem', color: '#00d2ff', fontWeight: '900', letterSpacing: '0.15em', textAlign: 'center', padding: '20px' }}>ANALIZANDO...</div>
+                                            {isScanning || isPredicting ? (
+                                                <div style={{ 
+                                                    flex: 1, 
+                                                    display: 'flex', 
+                                                    flexDirection: 'column', 
+                                                    alignItems: 'center', 
+                                                    justifyContent: 'center', 
+                                                    padding: '24px', 
+                                                    background: 'rgba(56, 189, 248, 0.03)', 
+                                                    borderRadius: '12px', 
+                                                    border: '1px dashed rgba(56, 189, 248, 0.25)',
+                                                    position: 'relative',
+                                                    overflow: 'hidden'
+                                                }}>
+                                                    {/* Scanning Beam Effect */}
+                                                    <motion.div 
+                                                        animate={{ x: ['-100%', '100%'] }}
+                                                        transition={{ repeat: Infinity, duration: 1.5, ease: 'easeInOut' }}
+                                                        style={{
+                                                            position: 'absolute',
+                                                            top: 0,
+                                                            bottom: 0,
+                                                            width: '40%',
+                                                            background: 'linear-gradient(90deg, transparent, rgba(56, 189, 248, 0.15), transparent)',
+                                                            pointerEvents: 'none'
+                                                        }}
+                                                    />
+
+                                                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '14px' }}>
+                                                        <motion.div 
+                                                            animate={{ rotate: 360 }}
+                                                            transition={{ repeat: Infinity, duration: 3, ease: 'linear' }}
+                                                            style={{
+                                                                position: 'absolute',
+                                                                width: '48px',
+                                                                height: '48px',
+                                                                borderRadius: '50%',
+                                                                border: '2px solid transparent',
+                                                                borderTopColor: '#38bdf8',
+                                                                borderRightColor: 'rgba(56, 189, 248, 0.3)'
+                                                            }}
+                                                        />
+                                                        <motion.div
+                                                            animate={{ scale: [0.9, 1.1, 0.9] }}
+                                                            transition={{ repeat: Infinity, duration: 1.2, ease: 'easeInOut' }}
+                                                            style={{
+                                                                padding: '10px',
+                                                                background: 'rgba(56, 189, 248, 0.12)',
+                                                                borderRadius: '50%',
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                justifyContent: 'center'
+                                                            }}
+                                                        >
+                                                            <Activity size={22} style={{ color: '#00d2ff' }} />
+                                                        </motion.div>
+                                                    </div>
+
+                                                    <div style={{ 
+                                                        fontSize: '0.85rem', 
+                                                        color: '#38bdf8', 
+                                                        fontWeight: '950', 
+                                                        letterSpacing: '0.12em', 
+                                                        textAlign: 'center',
+                                                        marginBottom: '4px'
+                                                    }}>
+                                                        {isScanning ? 'ESCANEANDO MUESTRA...' : 'CALCULANDO QUIMIOMETRÍA...'}
+                                                    </div>
+
+                                                    <div style={{ 
+                                                        fontSize: '0.62rem', 
+                                                        color: '#94a3b8', 
+                                                        fontWeight: '700', 
+                                                        textAlign: 'center' 
+                                                    }}>
+                                                        Capturando espectro NIR y evaluando modelos seleccionados
+                                                    </div>
+
+                                                    {/* Animated Wave Indicator */}
+                                                    <div style={{ display: 'flex', gap: '4px', marginTop: '12px', alignItems: 'center' }}>
+                                                        {[0, 1, 2, 3, 4].map((i) => (
+                                                            <motion.div 
+                                                                key={i}
+                                                                animate={{ height: ['6px', '18px', '6px'] }}
+                                                                transition={{ repeat: Infinity, duration: 0.8, delay: i * 0.15 }}
+                                                                style={{
+                                                                    width: '3px',
+                                                                    backgroundColor: '#38bdf8',
+                                                                    borderRadius: '2px'
+                                                                }}
+                                                            />
+                                                        ))}
+                                                    </div>
+                                                </div>
                                             ) : predictionResults.length > 0 ? (
                                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '8px' }}>
                                                     {predictionResults.map((res: any, idx: number) => {
@@ -3021,8 +3113,25 @@ export default function App() {
                                                     })}
                                                 </div>
                                             ) : (
-                                                <div style={{ opacity: 0.2, fontSize: '0.75rem', fontWeight: '800', letterSpacing: '0.1em', textAlign: 'center', padding: '20px', color: '#94a3b8' }}>
-                                                    ESPERANDO ANÁLISIS
+                                                <div style={{ 
+                                                    flex: 1,
+                                                    display: 'flex', 
+                                                    flexDirection: 'column', 
+                                                    alignItems: 'center', 
+                                                    justifyContent: 'center', 
+                                                    padding: '30px 15px', 
+                                                    color: '#64748b',
+                                                    borderRadius: '10px',
+                                                    border: '1px dashed rgba(255, 255, 255, 0.05)',
+                                                    background: 'rgba(15, 23, 42, 0.3)'
+                                                }}>
+                                                    <FlaskConical size={26} style={{ color: 'rgba(56, 189, 248, 0.25)', marginBottom: '8px' }} />
+                                                    <div style={{ fontSize: '0.75rem', fontWeight: '900', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.4)', marginBottom: '4px' }}>
+                                                        ESPERANDO ANÁLISIS
+                                                    </div>
+                                                    <div style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.2)', fontWeight: '700' }}>
+                                                        Pulse "ANALIZAR MUESTRA" para procesar espectro
+                                                    </div>
                                                 </div>
                                             )}
                                         </div>
