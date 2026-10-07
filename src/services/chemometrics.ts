@@ -45,16 +45,22 @@ function savitzkyGolay(data: number[], options: { windowSize: number; polynomial
         const reversedCoeffs = sgCoefficients.slice().reverse();
         
         const result = new Array(data.length);
-        for (let i = 0; i < data.length; i++) {
-            if (i < halfWindow || i >= data.length - halfWindow) {
-                result[i] = data[i]; 
-            } else {
-                let convSum = 0;
-                for (let j = 0; j < windowSize; j++) {
-                    convSum += data[i - halfWindow + j] * reversedCoeffs[j];
-                }
-                result[i] = convSum;
+        for (let i = halfWindow; i < data.length - halfWindow; i++) {
+            let convSum = 0;
+            for (let j = 0; j < windowSize; j++) {
+                convSum += data[i - halfWindow + j] * reversedCoeffs[j];
             }
+            result[i] = convSum;
+        }
+
+        const firstValid = result[halfWindow] ?? (data[halfWindow] || 0);
+        const lastValid = result[data.length - halfWindow - 1] ?? (data[data.length - halfWindow - 1] || 0);
+
+        for (let i = 0; i < halfWindow; i++) {
+            result[i] = derivative > 0 ? firstValid : data[i];
+        }
+        for (let i = data.length - halfWindow; i < data.length; i++) {
+            result[i] = derivative > 0 ? lastValid : data[i];
         }
         return result;
     } catch (e) {
@@ -99,6 +105,16 @@ export function applyPreprocessingLogic(inputSpectrum: number[], steps: Preproce
             }
             case 'savgol': { 
                 const { derivative = 1, windowSize = 5, polynomialOrder = 2 } = step.params || {};
+                processedSpectrum = savitzkyGolay(processedSpectrum, { windowSize: parseInt(String(windowSize)), polynomial: parseInt(String(polynomialOrder)), derivative: parseInt(String(derivative)) });
+                break;
+            }
+            case 'derivative':
+            case 'first_derivative':
+            case '1st_derivative': {
+                const stepAny = step as any;
+                const windowSize = step.params?.windowSize ?? stepAny.windowSize ?? stepAny.gap ?? 7;
+                const polynomialOrder = step.params?.polynomialOrder ?? stepAny.polynomialOrder ?? 2;
+                const derivative = step.params?.derivative ?? stepAny.derivative ?? 1;
                 processedSpectrum = savitzkyGolay(processedSpectrum, { windowSize: parseInt(String(windowSize)), polynomial: parseInt(String(polynomialOrder)), derivative: parseInt(String(derivative)) });
                 break;
             }
@@ -668,24 +684,132 @@ export function parseCSV(
     });
 }
 
+export const VIAVI_PIXELS = 125;
+export const VIAVI_START_NM = 908.1;
+export const VIAVI_STEP_NM = 6.19435;
+export const VIAVI_WAVELENGTHS: number[] = Array.from(
+    { length: VIAVI_PIXELS },
+    (_, i) => Number((VIAVI_START_NM + (VIAVI_STEP_NM * i)).toFixed(4))
+);
+
 /**
- * Compatibility function for existing App.tsx
+ * Extrae el arreglo de longitudes de onda requeridas por el modelo
+ * desde cualquier estructura compatible de Spectramodel o JSON quimiométrico.
+ */
+export function extractModelWavelengths(model: any): number[] | null {
+    if (!model) return null;
+    if (Array.isArray(model.wavelengths) && model.wavelengths.length > 0) {
+        return model.wavelengths.map(Number);
+    }
+    if (model.spectralRange && Array.isArray(model.spectralRange.wavelengths) && model.spectralRange.wavelengths.length > 0) {
+        return model.spectralRange.wavelengths.map(Number);
+    }
+    if (model.spectralRange?.isTrimmed && model.spectralRange?.trimmedRange) {
+        const min = Number(model.spectralRange.trimmedRange.min);
+        const max = Number(model.spectralRange.trimmedRange.max);
+        if (!isNaN(min) && !isNaN(max)) {
+            return VIAVI_WAVELENGTHS.filter(w => w >= min - 0.5 && w <= max + 0.5);
+        }
+    }
+    if (model.metrics && Array.isArray(model.metrics.wavelengths) && model.metrics.wavelengths.length > 0) {
+        return model.metrics.wavelengths.map(Number);
+    }
+    if (model.model && Array.isArray(model.model.wavelengths) && model.model.wavelengths.length > 0) {
+        return model.model.wavelengths.map(Number);
+    }
+    if (model.library && Array.isArray(model.library.wavelengths) && model.library.wavelengths.length > 0) {
+        return model.library.wavelengths.map(Number);
+    }
+    return null;
+}
+
+/**
+ * Alinea e interpola el espectro leído del sensor MicroNIR (125 puntos, 908.1 - 1676.2 nm)
+ * para coincidir exactamente con las longitudes de onda del modelo JSON (recortado o calibrado).
+ */
+export function alignSpectrumToModel(
+    inputSpectrum: number[],
+    targetWavelengths: number[],
+    sourceWavelengths: number[] = VIAVI_WAVELENGTHS
+): number[] {
+    if (!targetWavelengths || targetWavelengths.length === 0) return inputSpectrum;
+    if (inputSpectrum.length === 0) return [];
+
+    const numSrc = sourceWavelengths.length;
+    const aligned: number[] = new Array(targetWavelengths.length);
+
+    for (let k = 0; k < targetWavelengths.length; k++) {
+        const wl = targetWavelengths[k];
+
+        // 1. Detección directa por píxel para hardware Viavi estándar (~6.19 nm)
+        const approxIdx = Math.round((wl - VIAVI_START_NM) / VIAVI_STEP_NM);
+        if (
+            approxIdx >= 0 && 
+            approxIdx < inputSpectrum.length && 
+            Math.abs(sourceWavelengths[approxIdx] - wl) < 0.25
+        ) {
+            aligned[k] = inputSpectrum[approxIdx];
+            continue;
+        }
+
+        // 2. Interpolación lineal para modelos interpolados o con desplazamiento
+        if (wl <= sourceWavelengths[0]) {
+            aligned[k] = inputSpectrum[0];
+        } else if (wl >= sourceWavelengths[numSrc - 1]) {
+            aligned[k] = inputSpectrum[numSrc - 1];
+        } else {
+            let j = 0;
+            while (j < numSrc - 1 && sourceWavelengths[j + 1] < wl) {
+                j++;
+            }
+            const span = sourceWavelengths[j + 1] - sourceWavelengths[j];
+            const t = span > 1e-6 ? (wl - sourceWavelengths[j]) / span : 0;
+            aligned[k] = inputSpectrum[j] * (1 - t) + inputSpectrum[j + 1] * t;
+        }
+    }
+
+    return aligned;
+}
+
+/**
+ * Función principal de predicción espectral quimiométrica.
+ * Aplica alineación espectral, preprocesamiento y predicción PLS con Mahalanobis.
  */
 export function predict(
   absorbance: number[],
   model: ModelJSON,
   onLog?: (msg: string, type?: string) => void
 ): PredictionResult {
-  onLog?.("Iniciando predicción avanzada...", "log-default");
+  onLog?.("Iniciando motor de predicción quimiométrica...", "log-default");
   
-  const ref = model.metrics?.referenceSpectrum || model.referenceSpectrum;
-  const processed = applyPreprocessingLogic(absorbance, model.preprocessing || [], ref);
+  // 1. Extracción de longitudes de onda esperadas por el modelo
+  const targetWl = extractModelWavelengths(model);
+  let alignedSpectrum = absorbance;
   
-  // Usamos predictPLS que ahora soporta GH
+  if (targetWl && targetWl.length > 0) {
+      alignedSpectrum = alignSpectrumToModel(absorbance, targetWl);
+      onLog?.(
+          `✓ Rango alineado a ${alignedSpectrum.length} λ (${targetWl[0].toFixed(1)} a ${targetWl[targetWl.length - 1].toFixed(1)} nm).`, 
+          "log-sys"
+      );
+  } else {
+      onLog?.(`✓ Usando rango nativo completo del detector (${absorbance.length} puntos).`, "log-sys");
+  }
+
+  // 2. Alineación del espectro de referencia (para MSC si aplica)
+  let ref = model.metrics?.referenceSpectrum || model.referenceSpectrum;
+  if (ref && Array.isArray(ref) && targetWl && ref.length === VIAVI_PIXELS && alignedSpectrum.length !== VIAVI_PIXELS) {
+      ref = alignSpectrumToModel(ref, targetWl);
+  }
+
+  // 3. Preprocesamiento matemático sobre el espectro alineado
+  const processed = applyPreprocessingLogic(alignedSpectrum, model.preprocessing || [], ref);
+  
+  // 4. Predicción PLS con distancia Mahalanobis (GH)
   const results = predictPLS(model.metrics || model, processed);
   
   if (results.gh > 3) {
-      onLog?.(`¡Atención! Distancia Mahalanobis (GH) elevada: ${results.gh.toFixed(2)}. Muestra inusual.`, "log-warn");
+      onLog?.(`¡Atención! Distancia Mahalanobis (GH) elevada: ${results.gh.toFixed(2)}. Muestra inusual o fuera de calibración.`, "log-warn");
   }
 
   return {

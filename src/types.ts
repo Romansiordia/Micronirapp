@@ -46,6 +46,7 @@ export interface PredictionModel {
   name: string;
   product: string;
   json: ModelJSON;
+  origin?: 'cloud' | 'local';
 }
 
 export interface PredictionResult {

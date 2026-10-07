@@ -5,7 +5,7 @@
 
 import { useEffect, useRef, useState, ChangeEvent, FormEvent } from 'react';
 import { Chart, registerables } from 'chart.js';
-import { Cpu, Clock, Thermometer, Battery, Activity, Moon, Sun, Zap, Lock, Unlock, PowerOff, Database, FileJson, ChevronDown, Plus, Trash2, Printer, Settings, BarChart3, ShieldAlert, LayoutDashboard, Search, Link as LinkIcon, RefreshCw, Bluetooth, Usb, Cloud, LayoutList, Wheat, Sprout, Leaf, Flower2, FlaskConical, Beef, Fish, Package, Gauge } from 'lucide-react';
+import { Cpu, Clock, Thermometer, Battery, Activity, Moon, Sun, Zap, Lock, Unlock, PowerOff, Database, FileJson, ChevronDown, Plus, Trash2, Printer, Settings, BarChart3, ShieldAlert, LayoutDashboard, Search, Link as LinkIcon, RefreshCw, Bluetooth, Usb, Cloud, LayoutList, Wheat, Sprout, Leaf, Flower2, FlaskConical, Beef, Fish, Package, Gauge, Eraser, CheckSquare, X, Filter } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { PredictionModel, PredictionResult, ModelJSON } from './types';
 import { predict } from './services/chemometrics';
@@ -2093,7 +2093,44 @@ export default function App() {
     const [calib, setCalib] = useState({ dark: true, white: false });
     const [models, setModels] = useState<PredictionModel[]>(() => {
         const saved = localStorage.getItem('mn_models');
-        return saved ? JSON.parse(saved) : [];
+        if (!saved) return [];
+        try {
+            const parsed: any[] = JSON.parse(saved);
+            return parsed.map((m: any, idx: number) => {
+                const id = m.id || `model-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 7)}`;
+                let name = m.name || m.fileName?.replace(/\.json$/i, '') || m.json?.analyticalProperty || '';
+                let product = m.product || '';
+                
+                // Si el producto dice 'LOCAL' o está vacío, repararlo automáticamente usando el nombre del archivo
+                if (!product || product.toUpperCase() === 'LOCAL') {
+                    const clean = (name || '').trim();
+                    const paramKeywords = [
+                        'PROTEINA', 'PROTEÍNA', 'HUMEDAD', 'GRASA', 'CENIZA', 'FIBRA', 
+                        'ALMIDON', 'ALMIDÓN', 'MOISTURE', 'PROTEIN', 'FAT', 'ASH', 'FIBER', 'MATERIA SECA'
+                    ];
+                    let candidate = clean.toUpperCase();
+                    for (const kw of paramKeywords) {
+                        candidate = candidate.replace(new RegExp(`(^|[\\s_\\-]+)${kw}([\\s_\\-]+|$)`, 'gi'), ' ').trim();
+                    }
+                    candidate = candidate.replace(/^[_\s\-]+|[_\s\-]+$/g, '').trim();
+                    product = candidate.length >= 2 ? candidate : clean;
+                }
+
+                if (!name || name.toUpperCase() === 'LOCAL') {
+                    name = m.json?.analyticalProperty || product || `Modelo ${idx + 1}`;
+                }
+
+                return {
+                    id,
+                    name: name.trim(),
+                    product: product.trim().toUpperCase(),
+                    json: m.json || m,
+                    origin: m.origin || 'local'
+                };
+            });
+        } catch {
+            return [];
+        }
     });
     const [history, setHistory] = useState<any[]>([]);
     const [selectedModelIds, setSelectedModelIds] = useState<string[]>(() => {
@@ -2209,15 +2246,42 @@ export default function App() {
             try {
                 const jsonObj = JSON.parse(event.target?.result as string);
                 
-                // Prompt user to give a product name for the local model
-                const productName = window.prompt("Ingrese el nombre de la matriz (Materia Prima) para este modelo:", "LOCAL");
-                if (!productName) return;
+                // 1. Obtener nombre base del archivo sin extensión (ej: "PROTEINA DDGS")
+                const cleanFileName = file.name.replace(/\.[^/.]+$/, '').trim();
+
+                // 2. Extraer o detectar la materia prima (producto) inteligentemente
+                let detectedProduct = jsonObj.product || jsonObj.analyticalMatrix || jsonObj.matrix || '';
+
+                if (!detectedProduct || detectedProduct.toUpperCase() === 'LOCAL') {
+                    const paramKeywords = [
+                        'PROTEINA', 'PROTEÍNA', 'HUMEDAD', 'GRASA', 'CENIZA', 'FIBRA', 
+                        'ALMIDON', 'ALMIDÓN', 'MOISTURE', 'PROTEIN', 'FAT', 'ASH', 'FIBER', 'MATERIA SECA'
+                    ];
+                    let candidate = cleanFileName.toUpperCase();
+                    for (const kw of paramKeywords) {
+                        candidate = candidate.replace(new RegExp(`(^|[\\s_\\-]+)${kw}([\\s_\\-]+|$)`, 'gi'), ' ').trim();
+                    }
+                    candidate = candidate.replace(/^[_\s\-]+|[_\s\-]+$/g, '').trim();
+
+                    if (candidate.length >= 2) {
+                        detectedProduct = candidate;
+                    } else {
+                        detectedProduct = cleanFileName;
+                    }
+                }
+
+                // 3. Parámetro analítico (ej: Proteina, Humedad, Grasa)
+                const analyticalProp = jsonObj.analyticalProperty || jsonObj.property || '';
 
                 const newModel: PredictionModel = {
-                    id: crypto.randomUUID(),
-                    name: jsonObj.analyticalProperty || file.name.replace('.json', ''),
-                    product: productName.toUpperCase(),
-                    json: jsonObj
+                    id: (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `local-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+                    name: cleanFileName, // Nombre real del archivo (ej: "PROTEINA DDGS", "GRASA DDGS", "PROTEINA PASTA SOYA")
+                    product: detectedProduct.toUpperCase(), // Grupo de materia prima (ej: "DDGS", "PASTA SOYA")
+                    json: {
+                        ...jsonObj,
+                        analyticalProperty: analyticalProp || cleanFileName
+                    },
+                    origin: 'local'
                 };
 
                 setModels(prev => {
@@ -2225,15 +2289,13 @@ export default function App() {
                     return [...filtered, newModel];
                 });
 
-                setSelectedModelIds(prev => [...prev, newModel.id]);
+                setSelectedModelIds(prev => Array.from(new Set([...prev, newModel.id])));
                 app()?.log(`✓ Modelo local "${newModel.name}" cargado para ${newModel.product}.`, "log-warn");
             } catch (err: any) {
                 app()?.log("Error al cargar modelo local: " + err.message, "log-err");
-                alert("Error al procesar el archivo JSON.");
             }
         };
         reader.readAsText(file);
-        // Reset the input so the same file could be selected again if needed
         e.target.value = '';
     };
 
@@ -2254,22 +2316,27 @@ export default function App() {
                     id: crypto.randomUUID(),
                     name: m.analyticalProperty || m.fileName.replace('.json', ''),
                     product: folderName,
-                    json: m
+                    json: m,
+                    origin: 'cloud'
                 }));
-                // Limpiar modelos locales previos de la misma materia prima para evitar duplicados
+                
+                // Actualizar lista de modelos sin borrar modelos locales de otras matrices
                 setModels(prev => {
                     const filtered = prev.filter(p => !newModels.some(n => n.product === p.product && n.name === p.name));
-                    const next = [...filtered, ...newModels];
-                    return next;
+                    return [...filtered, ...newModels];
                 });
 
-                // AUTO-SELECCIÓN: Activar todos los modelos de la materia prima seleccionada
-                if (newModels.length > 0) {
-                    setSelectedModelIds(newModels.map(nm => nm.id));
-                    app()?.log(`✓ Materia prima ${folderName} vinculada con ${newModels.length} parámetros.`, "log-warn");
-                }
+                // Activar los nuevos modelos descargados y preservar modelos locales ya activos
+                const newModelIds = newModels.map(nm => nm.id);
+                setSelectedModelIds(prev => {
+                    const activeLocals = prev.filter(id => {
+                        const m = models.find(mod => mod.id === id);
+                        return m && m.origin === 'local';
+                    });
+                    return Array.from(new Set([...activeLocals, ...newModelIds]));
+                });
 
-                app()?.log(`✓ ${newModels.length} modelos cargados correctamente.`, "log-warn");
+                app()?.log(`✓ Materia prima ${folderName} vinculada con ${newModels.length} parámetros [NUBE].`, "log-warn");
             } else {
                 throw new Error(data.message);
             }
@@ -2278,6 +2345,36 @@ export default function App() {
         } finally {
             setIsSyncing(false);
         }
+    };
+
+    const clearAllModels = () => {
+        if (models.length === 0) return;
+        setModels([]);
+        setSelectedModelIds([]);
+        setSelectedFolder('');
+        localStorage.removeItem('mn_models');
+        localStorage.removeItem('mn_selected_models');
+        app()?.log("✓ Se limpiaron todos los modelos cargados.", "log-warn");
+    };
+
+    const deleteProductGroup = (product: string) => {
+        const prodNormalized = product.trim().toUpperCase();
+        setModels(prev => prev.filter(m => (m.product || '').trim().toUpperCase() !== prodNormalized));
+        setSelectedModelIds(prev => {
+            const remainingModels = models.filter(m => (m.product || '').trim().toUpperCase() !== prodNormalized);
+            const remainingIds = new Set(remainingModels.map(m => m.id));
+            return prev.filter(id => remainingIds.has(id));
+        });
+        app()?.log(`✓ Grupo "${product}" eliminado.`, "log-warn");
+    };
+
+    const deleteSingleModel = (model: PredictionModel) => {
+        setModels(prev => prev.filter(m => {
+            if (m.id && model.id) return m.id !== model.id;
+            return !(m.name === model.name && m.product === model.product);
+        }));
+        setSelectedModelIds(prev => prev.filter(id => id !== model.id));
+        app()?.log(`✓ Modelo "${model.name}" eliminado.`, "log-warn");
     };
 
     const [predictionResults, setPredictionResults] = useState<PredictionResult[]>([]);
@@ -2885,14 +2982,49 @@ export default function App() {
                             <div className="chart-hdr" style={{ marginBottom: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                                 <div>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', minWidth: '350px' }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '2px' }}>
                                             <span style={{ fontSize: '0.65rem', color: '#38bdf8', fontWeight: '900', letterSpacing: '0.08em' }}>SELECCIONAR MATERIA PRIMA</span>
+                                            {selectedModelIds.length > 0 && (
+                                                <button 
+                                                    onClick={() => {
+                                                        setSelectedModelIds([]);
+                                                        app()?.log("Modelos desmarcados.", "log-sys");
+                                                    }}
+                                                    style={{
+                                                        fontSize: '0.58rem',
+                                                        color: '#f87171',
+                                                        background: 'rgba(239, 68, 68, 0.12)',
+                                                        border: '1px solid rgba(239, 68, 68, 0.25)',
+                                                        borderRadius: '4px',
+                                                        padding: '2px 7px',
+                                                        cursor: 'pointer',
+                                                        fontWeight: '800',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: '4px'
+                                                    }}
+                                                    title="Desmarcar todos los modelos seleccionados"
+                                                >
+                                                    <X size={10} /> Desmarcar ({selectedModelIds.length})
+                                                </button>
+                                            )}
                                         </div>
                                         <div style={{ position: 'relative' }}>
                                             <select 
-                                                value={selectedModelIds.length > 0 ? (models.find(m => m.id === selectedModelIds[0])?.product || '') : ''}
+                                                value={
+                                                    selectedModelIds.length === 0 
+                                                        ? '' 
+                                                        : Array.from(new Set(selectedModelIds.map(id => models.find(m => m.id === id)?.product).filter(Boolean))).length === 1
+                                                            ? models.find(m => m.id === selectedModelIds[0])?.product || ''
+                                                            : '__multi__'
+                                                }
                                                 onChange={(e) => {
                                                     const product = e.target.value;
+                                                    if (!product) {
+                                                        setSelectedModelIds([]);
+                                                        return;
+                                                    }
+                                                    if (product === '__multi__') return;
                                                     const ids = models.filter(m => m.product === product).map(m => m.id);
                                                     setSelectedModelIds(ids);
                                                     app()?.log(`✓ Producto cambiado a: ${product} (${ids.length} parámetros)`, 'log-warn');
@@ -2911,7 +3043,10 @@ export default function App() {
                                                     cursor: 'pointer'
                                                 }}
                                             >
-                                                <option value="" disabled style={{ background: '#0f172a' }}>-- Seleccionar Producto a Analizar --</option>
+                                                <option value="" style={{ background: '#0f172a' }}>-- Seleccionar Producto a Analizar --</option>
+                                                {Array.from(new Set(selectedModelIds.map(id => models.find(m => m.id === id)?.product).filter(Boolean))).length > 1 && (
+                                                    <option value="__multi__" style={{ background: '#0f172a' }}>⚡ Análisis Combinado ({selectedModelIds.length} parámetros activos)</option>
+                                                )}
                                                 {uniqueProducts.map(p => (
                                                     <option key={p} value={p} style={{ background: '#0f172a' }}>{p}</option>
                                                 ))}
@@ -2951,7 +3086,7 @@ export default function App() {
                                             <div>
                                                 <div style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: '800', letterSpacing: '0.05em' }}>MUESTRA(S) SELECCIONADA(S)</div>
                                                 <div style={{ fontSize: '1rem', fontWeight: '950', color: '#fff', letterSpacing: '-0.02em' }}>
-                                                    {selectedModelIds.length === 1 
+                                                    {Array.from(new Set(selectedModelIds.map(id => models.find(m => m.id === id)?.product).filter(Boolean))).length === 1 
                                                         ? models.find(m => m.id === selectedModelIds[0])?.product 
                                                         : 'ANÁLISIS MÚLTIPLE'}
                                                 </div>
@@ -3281,93 +3416,233 @@ export default function App() {
                                     </div>
 
                                     <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '15px' }}>
-                                            <Database size={18} style={{ color: '#38bdf8' }} />
-                                            <span style={{ fontWeight: '950', fontSize: '0.85rem', color: '#fff' }}>LIBRERÍA LOCAL DE MODELOS</span>
-                                            <span style={{ fontSize: '0.6rem', color: '#94a3b8', marginLeft: 'auto' }}>({models.length} modelos cargados)</span>
+                                        {/* Barra superior con título y botón principal LIMPIAR TODO */}
+                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '15px', flexWrap: 'wrap', gap: '10px' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                <Database size={18} style={{ color: '#38bdf8' }} />
+                                                <span style={{ fontWeight: '950', fontSize: '0.85rem', color: '#fff' }}>LIBRERÍA DE MODELOS</span>
+                                                <span style={{ fontSize: '0.65rem', color: '#94a3b8', marginLeft: '6px' }}>
+                                                    ({models.length} parámetros cargados)
+                                                </span>
+                                            </div>
+
+                                            {/* BOTÓN LIMPIAR TODO */}
+                                            <button 
+                                                onClick={clearAllModels}
+                                                disabled={models.length === 0}
+                                                style={{
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '6px',
+                                                    padding: '8px 16px',
+                                                    borderRadius: '8px',
+                                                    fontSize: '0.75rem',
+                                                    fontWeight: '900',
+                                                    letterSpacing: '0.04em',
+                                                    background: models.length === 0 ? 'rgba(255, 255, 255, 0.03)' : 'rgba(239, 68, 68, 0.15)',
+                                                    color: models.length === 0 ? '#64748b' : '#f87171',
+                                                    border: `1px solid ${models.length === 0 ? 'rgba(255, 255, 255, 0.06)' : 'rgba(239, 68, 68, 0.35)'}`,
+                                                    cursor: models.length === 0 ? 'not-allowed' : 'pointer',
+                                                    transition: 'all 0.2s'
+                                                }}
+                                                title="Limpiar todos los modelos cargados en la pantalla"
+                                            >
+                                                <Trash2 size={14} />
+                                                LIMPIAR TODO
+                                            </button>
                                         </div>
 
                                         <div className="ind-inset" style={{ padding: '15px', flexShrink: 0 }}>
                                             {models.length === 0 ? (
                                                 <div style={{ height: '200px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.15)', gap: '15px' }}>
                                                     <Database size={48} />
-                                                    <span style={{ fontSize: '0.8rem', fontWeight: '900', letterSpacing: '0.1em' }}>SIN MODELOS DISPONIBLES</span>
-                                                    <button onClick={syncLibrary} className="chip-btn" style={{ fontSize: '0.7rem' }}>SINCRONIZAR AHORA</button>
+                                                    <span style={{ fontSize: '0.8rem', fontWeight: '900', letterSpacing: '0.1em' }}>SIN MODELOS CARGADOS</span>
+                                                    <span style={{ fontSize: '0.65rem', color: '#64748b' }}>Carga un archivo JSON local arriba o selecciona una carpeta en la nube</span>
                                                 </div>
                                             ) : (
-                                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '12px' }}>
-                                                    {models.map(m => (
-                                                        <div key={m.id} className={`model-card ${selectedModelIds.includes(m.id) ? 'selected' : ''}`} style={{ 
-                                                            display: 'flex', 
-                                                            alignItems: 'center', 
-                                                            justifyContent: 'space-between', 
-                                                            padding: '15px', 
-                                                            background: selectedModelIds.includes(m.id) ? 'rgba(56, 189, 248, 0.08)' : 'rgba(255,255,255,0.02)', 
-                                                            borderRadius: '12px', 
-                                                            border: '1px solid',
-                                                            borderColor: selectedModelIds.includes(m.id) ? 'rgba(56, 189, 248, 0.4)' : 'rgba(255,255,255,0.05)',
-                                                            transition: 'all 0.2s'
-                                                        }}>
-                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
-                                                                <div 
-                                                                    onClick={() => setSelectedModelIds(prev => prev.includes(m.id) ? prev.filter(id => id !== m.id) : [...prev, m.id])}
-                                                                    style={{ 
-                                                                        width: '20px', 
-                                                                        height: '20px', 
-                                                                        borderRadius: '6px', 
-                                                                        border: '2px solid',
-                                                                        borderColor: selectedModelIds.includes(m.id) ? '#38bdf8' : 'rgba(255,255,255,0.2)',
-                                                                        background: selectedModelIds.includes(m.id) ? '#38bdf8' : 'transparent',
-                                                                        display: 'flex',
-                                                                        alignItems: 'center',
-                                                                        justifyContent: 'center',
-                                                                        cursor: 'pointer'
-                                                                    }}
-                                                                >
-                                                                    {selectedModelIds.includes(m.id) && <Plus size={14} style={{ color: '#000', transform: 'rotate(45deg)' }} />}
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                                                    {Array.from(new Set(models.map(m => m.product))).map(prod => {
+                                                        const prodModels = models.filter(m => m.product === prod);
+                                                        const prodSelectedCount = prodModels.filter(m => selectedModelIds.includes(m.id)).length;
+                                                        const isAllProdSelected = prodSelectedCount === prodModels.length;
+
+                                                        return (
+                                                            <div key={prod} style={{ 
+                                                                background: 'rgba(15, 23, 42, 0.4)', 
+                                                                borderRadius: '12px', 
+                                                                border: '1px solid rgba(255, 255, 255, 0.05)',
+                                                                padding: '14px' 
+                                                            }}>
+                                                                {/* Cabecera del Grupo con Acciones de Grupo */}
+                                                                <div style={{ 
+                                                                    display: 'flex', 
+                                                                    alignItems: 'center', 
+                                                                    justifyContent: 'space-between', 
+                                                                    marginBottom: '12px',
+                                                                    paddingBottom: '10px',
+                                                                    borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
+                                                                    flexWrap: 'wrap',
+                                                                    gap: '8px'
+                                                                }}>
+                                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                                        <div style={{ padding: '6px', background: 'rgba(56, 189, 248, 0.12)', borderRadius: '8px' }}>
+                                                                            {getProductIcon(prod)}
+                                                                        </div>
+                                                                        <div>
+                                                                            <span style={{ fontSize: '0.9rem', fontWeight: '950', color: '#fff', letterSpacing: '-0.01em' }}>
+                                                                                {prod}
+                                                                            </span>
+                                                                            <span style={{ fontSize: '0.62rem', color: '#94a3b8', marginLeft: '8px', fontWeight: '700' }}>
+                                                                                ({prodModels.length} parámetros • {prodSelectedCount} seleccionados)
+                                                                            </span>
+                                                                        </div>
+                                                                    </div>
+
+                                                                    {/* Botones de acción del grupo: Seleccionar / Desmarcar Grupo y Borrar Grupo */}
+                                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                                        <button
+                                                                            onClick={() => {
+                                                                                const prodIds = prodModels.map(m => m.id);
+                                                                                if (isAllProdSelected) {
+                                                                                    setSelectedModelIds(prev => prev.filter(id => !prodIds.includes(id)));
+                                                                                } else {
+                                                                                    setSelectedModelIds(prev => Array.from(new Set([...prev, ...prodIds])));
+                                                                                }
+                                                                            }}
+                                                                            style={{
+                                                                                padding: '5px 10px',
+                                                                                borderRadius: '6px',
+                                                                                fontSize: '0.65rem',
+                                                                                fontWeight: '800',
+                                                                                background: 'rgba(56, 189, 248, 0.1)',
+                                                                                color: '#38bdf8',
+                                                                                border: '1px solid rgba(56, 189, 248, 0.25)',
+                                                                                cursor: 'pointer'
+                                                                            }}
+                                                                        >
+                                                                            {isAllProdSelected ? 'Desmarcar Grupo' : 'Seleccionar Grupo'}
+                                                                        </button>
+
+                                                                        <button
+                                                                            onClick={() => deleteProductGroup(prod)}
+                                                                            title={`Eliminar el grupo completo de ${prod}`}
+                                                                            style={{
+                                                                                display: 'flex',
+                                                                                alignItems: 'center',
+                                                                                gap: '4px',
+                                                                                padding: '5px 10px',
+                                                                                borderRadius: '6px',
+                                                                                fontSize: '0.65rem',
+                                                                                fontWeight: '800',
+                                                                                background: 'rgba(239, 68, 68, 0.12)',
+                                                                                color: '#f87171',
+                                                                                border: '1px solid rgba(239, 68, 68, 0.25)',
+                                                                                cursor: 'pointer'
+                                                                            }}
+                                                                        >
+                                                                            <Trash2 size={12} />
+                                                                            Borrar Grupo
+                                                                        </button>
+                                                                    </div>
                                                                 </div>
-                                                                <div style={{ flex: 1, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }} onClick={() => setSelectedModelIds(prev => prev.includes(m.id) ? prev.filter(id => id !== m.id) : [...prev, m.id])}>
-                                                                    <div style={{ padding: '6px', background: 'rgba(56, 189, 248, 0.1)', borderRadius: '8px', display: 'flex' }}>
-                                                                        {getProductIcon(m.product)}
-                                                                    </div>
-                                                                    <div>
-                                                                        <div style={{ fontSize: '0.85rem', fontWeight: '950', color: '#fff', letterSpacing: '-0.01em' }}>{m.product}</div>
-                                                                        <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: '700' }}>{m.name}</div>
-                                                                    </div>
+
+                                                                {/* Tarjetas individuales de este grupo */}
+                                                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '10px' }}>
+                                                                    {prodModels.map(m => {
+                                                                        const isSelected = selectedModelIds.includes(m.id);
+
+                                                                        return (
+                                                                            <div key={m.id} className={`model-card ${isSelected ? 'selected' : ''}`} style={{ 
+                                                                                display: 'flex', 
+                                                                                alignItems: 'center', 
+                                                                                justifyContent: 'space-between', 
+                                                                                padding: '12px 14px', 
+                                                                                background: isSelected ? 'rgba(56, 189, 248, 0.08)' : 'rgba(255,255,255,0.02)', 
+                                                                                borderRadius: '10px', 
+                                                                                border: '1px solid',
+                                                                                borderColor: isSelected ? 'rgba(56, 189, 248, 0.4)' : 'rgba(255,255,255,0.05)',
+                                                                                transition: 'all 0.2s'
+                                                                            }}>
+                                                                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1, minWidth: 0 }}>
+                                                                                    <div 
+                                                                                        onClick={() => setSelectedModelIds(prev => prev.includes(m.id) ? prev.filter(id => id !== m.id) : [...prev, m.id])}
+                                                                                        style={{ 
+                                                                                            width: '20px', 
+                                                                                            height: '20px', 
+                                                                                            borderRadius: '6px', 
+                                                                                            border: '2px solid',
+                                                                                            borderColor: isSelected ? '#38bdf8' : 'rgba(255,255,255,0.25)',
+                                                                                            background: isSelected ? '#38bdf8' : 'transparent',
+                                                                                            display: 'flex',
+                                                                                            alignItems: 'center',
+                                                                                            justifyContent: 'center',
+                                                                                            cursor: 'pointer',
+                                                                                            flexShrink: 0
+                                                                                        }}
+                                                                                    >
+                                                                                        {isSelected && <Plus size={14} style={{ color: '#000', transform: 'rotate(45deg)' }} />}
+                                                                                    </div>
+                                                                                    <div 
+                                                                                        style={{ flex: 1, cursor: 'pointer', minWidth: 0 }} 
+                                                                                        onClick={() => setSelectedModelIds(prev => prev.includes(m.id) ? prev.filter(id => id !== m.id) : [...prev, m.id])}
+                                                                                    >
+                                                                                        <div style={{ fontSize: '0.82rem', fontWeight: '950', color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                                                            {m.name || m.product}
+                                                                                        </div>
+                                                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
+                                                                                            <span style={{ fontSize: '0.65rem', color: '#38bdf8', fontWeight: '800' }}>
+                                                                                                {m.product}
+                                                                                            </span>
+                                                                                            <span style={{ 
+                                                                                                fontSize: '0.55rem', 
+                                                                                                fontWeight: '800', 
+                                                                                                padding: '1px 5px', 
+                                                                                                borderRadius: '4px',
+                                                                                                background: m.origin === 'cloud' ? 'rgba(56, 189, 248, 0.15)' : 'rgba(34, 197, 94, 0.15)',
+                                                                                                color: m.origin === 'cloud' ? '#38bdf8' : '#4ade80',
+                                                                                                border: `1px solid ${m.origin === 'cloud' ? 'rgba(56, 189, 248, 0.3)' : 'rgba(34, 197, 94, 0.3)'}`
+                                                                                            }}>
+                                                                                                {m.origin === 'cloud' ? 'NUBE' : 'LOCAL'}
+                                                                                            </span>
+                                                                                        </div>
+                                                                                    </div>
+                                                                                </div>
+                                                                                <div style={{ display: 'flex', gap: '6px', flexShrink: 0, marginLeft: '6px' }}>
+                                                                                    <button 
+                                                                                        onClick={(e) => {
+                                                                                            e.stopPropagation();
+                                                                                            const devKey = appRef.current?.getDeviceKey() || '';
+                                                                                            const modelKey = `${devKey}_${m.product}`;
+                                                                                            const settings = appRef.current?.biasSettings[modelKey] || {};
+                                                                                            setBiasTargetModel(m);
+                                                                                            setBiasState(settings);
+                                                                                            setIsBiasModalOpen(true);
+                                                                                        }}
+                                                                                        title="Ajuste de Bias/Slope"
+                                                                                        className="btn-icon-gold"
+                                                                                        style={{ padding: '7px', background: 'rgba(251, 191, 36, 0.1)', border: '1px solid rgba(251, 191, 36, 0.2)', borderRadius: '7px', color: '#fbbf24' }}
+                                                                                    >
+                                                                                        <Settings size={13} />
+                                                                                    </button>
+                                                                                    <button 
+                                                                                        onClick={(e) => {
+                                                                                            e.stopPropagation();
+                                                                                            deleteSingleModel(m);
+                                                                                        }}
+                                                                                        title={`Eliminar parámetro individual: ${m.name}`}
+                                                                                        className="btn-icon-red"
+                                                                                        style={{ padding: '7px', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: '7px', color: '#ef4444' }}
+                                                                                    >
+                                                                                        <Trash2 size={13} />
+                                                                                    </button>
+                                                                                </div>
+                                                                            </div>
+                                                                        );
+                                                                    })}
                                                                 </div>
                                                             </div>
-                                                            <div style={{ display: 'flex', gap: '8px' }}>
-                                                                <button 
-                                                                    onClick={(e) => {
-                                                                        e.stopPropagation();
-                                                                        const devKey = appRef.current?.getDeviceKey() || '';
-                                                                        const modelKey = `${devKey}_${m.product}`;
-                                                                        const settings = appRef.current?.biasSettings[modelKey] || {};
-                                                                        setBiasTargetModel(m);
-                                                                        setBiasState(settings);
-                                                                        setIsBiasModalOpen(true);
-                                                                    }}
-                                                                    title="Ajuste de Bias/Slope"
-                                                                    className="btn-icon-gold"
-                                                                    style={{ padding: '8px', background: 'rgba(251, 191, 36, 0.1)', border: '1px solid rgba(251, 191, 36, 0.2)', borderRadius: '8px', color: '#fbbf24' }}
-                                                                >
-                                                                    <Settings size={14} />
-                                                                </button>
-                                                                <button 
-                                                                    onClick={(e) => {
-                                                                        e.stopPropagation();
-                                                                        if (window.confirm(`¿Eliminar modelo ${m.product}?`)) {
-                                                                            setModels(prev => prev.filter(x => x.id !== m.id));
-                                                                        }
-                                                                    }}
-                                                                    className="btn-icon-red"
-                                                                    style={{ padding: '8px', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: '8px', color: '#ef4444' }}
-                                                                >
-                                                                    <Trash2 size={14} />
-                                                                </button>
-                                                            </div>
-                                                        </div>
-                                                    ))}
+                                                        );
+                                                    })}
                                                 </div>
                                             )}
                                         </div>
@@ -3603,6 +3878,7 @@ export default function App() {
                     </div>
                 </div>
             )}
+
 
             <div className="modal-overlay" id="sampleModal" style={{ backgroundColor: 'rgba(2, 6, 23, 0.85)', backdropFilter: 'blur(4px)' }}>
                 <div className="modal" style={{ maxWidth: '400px', backgroundColor: '#0f172a', border: '1px solid #1e293b', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)' }}>
