@@ -1395,12 +1395,20 @@ class MicroNIRApp {
             this.sessionHistory.push(scan);
         }
 
-        localStorage.setItem('mn_history', JSON.stringify(this.history));
+        try {
+            localStorage.setItem('mn_history', JSON.stringify(this.history));
+        } catch (e) {
+            console.warn("No se pudo guardar mn_history en localStorage:", e);
+        }
     }
 
     deleteHistoryItem(id: string) {
         this.history = this.history.filter(h => h.id !== id);
-        localStorage.setItem('mn_history', JSON.stringify(this.history));
+        try {
+            localStorage.setItem('mn_history', JSON.stringify(this.history));
+        } catch (e) {
+            console.warn("No se pudo guardar mn_history en localStorage:", e);
+        }
         if (this.onHistoryChange) this.onHistoryChange([...this.history]);
     }
 
@@ -1408,7 +1416,11 @@ class MicroNIRApp {
         if (!confirm('¿Borrar todo el historial?')) return;
         this.history = [];
         this.sessionHistory = [];
-        localStorage.setItem('mn_history', '[]');
+        try {
+            localStorage.setItem('mn_history', '[]');
+        } catch (e) {
+            console.warn("No se pudo limpiar mn_history en localStorage:", e);
+        }
         if (this.onHistoryChange) this.onHistoryChange([]);
     }
 
@@ -2042,7 +2054,11 @@ class MicroNIRApp {
                             sessionItem.absData = absorbance;
                         }
 
-                        localStorage.setItem('mn_history', JSON.stringify(this.history));
+                        try {
+                            localStorage.setItem('mn_history', JSON.stringify(this.history));
+                        } catch (e) {
+                            console.warn("No se pudo guardar mn_history tras predicción:", e);
+                        }
                         if (this.onHistoryChange) this.onHistoryChange([...this.history]);
                     }
 
@@ -2077,7 +2093,7 @@ class MicroNIRApp {
 }
 
 const getProductIcon = (productName: string) => {
-    const p = productName.toLowerCase();
+    const p = (productName || '').toLowerCase();
     if (p.includes('maiz') || p.includes('sorgo')) return <Sprout size={16} style={{ color: '#38bdf8' }} />;
     if (p.includes('soya')) return <Leaf size={16} style={{ color: '#38bdf8' }} />;
     if (p.includes('canola')) return <Flower2 size={16} style={{ color: '#38bdf8' }} />;
@@ -2302,7 +2318,7 @@ export default function App() {
     const loadFolderModels = async (folderId: string) => {
         if (!folderId) return;
         const folder = cloudFolders.find(f => f.id === folderId);
-        const folderName = folder ? folder.name.toUpperCase() : 'DESCONOCIDO';
+        const folderName = folder?.name ? folder.name.toUpperCase() : 'DESCONOCIDO';
         
         setSelectedFolder(folderId);
         setIsSyncing(true);
@@ -2311,19 +2327,27 @@ export default function App() {
             const joinChar = cloudUrl.includes('?') ? '&' : '?';
             const response = await fetch(`${cloudUrl}${joinChar}action=getModels&folderId=${folderId}`);
             const data = await response.json();
-            if (data.status === "success") {
-                const newModels: PredictionModel[] = data.models.map((m: any) => ({
-                    id: crypto.randomUUID(),
-                    name: m.analyticalProperty || m.fileName.replace('.json', ''),
-                    product: folderName,
-                    json: m,
-                    origin: 'cloud'
-                }));
+            if (data.status === "success" && Array.isArray(data.models)) {
+                const newModels: PredictionModel[] = data.models.map((m: any, idx: number) => {
+                    const fallbackName = `Parámetro ${idx + 1}`;
+                    const extractedName = m.analyticalProperty || (m.fileName ? m.fileName.replace(/\.json$/i, '') : '') || m.name || fallbackName;
+                    const safeId = (typeof crypto !== 'undefined' && crypto.randomUUID) 
+                        ? crypto.randomUUID() 
+                        : `cloud-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 7)}`;
+                    return {
+                        id: safeId,
+                        name: extractedName,
+                        product: folderName,
+                        json: m,
+                        origin: 'cloud'
+                    };
+                });
                 
-                // Actualizar lista de modelos sin borrar modelos locales de otras matrices
+                // Reemplazamos los modelos de nube previos por los nuevos descargados,
+                // pero conservamos al 100% cualquier modelo LOCAL que el usuario haya subido
                 setModels(prev => {
-                    const filtered = prev.filter(p => !newModels.some(n => n.product === p.product && n.name === p.name));
-                    return [...filtered, ...newModels];
+                    const localModels = prev.filter(p => p.origin === 'local');
+                    return [...localModels, ...newModels];
                 });
 
                 // Activar los nuevos modelos descargados y preservar modelos locales ya activos
@@ -2338,7 +2362,7 @@ export default function App() {
 
                 app()?.log(`✓ Materia prima ${folderName} vinculada con ${newModels.length} parámetros [NUBE].`, "log-warn");
             } else {
-                throw new Error(data.message);
+                throw new Error(data.message || "Formato de modelos no reconocido");
             }
         } catch (err: any) {
             app()?.log("Error al cargar modelos: " + err.message, "log-err");
@@ -2383,11 +2407,19 @@ export default function App() {
     const [activeMenu, setActiveMenu] = useState<'config' | 'analysis' | 'diag' | 'models'>('analysis');
 
     useEffect(() => {
-        localStorage.setItem('mn_models', JSON.stringify(models));
+        try {
+            localStorage.setItem('mn_models', JSON.stringify(models));
+        } catch (err) {
+            console.warn("Límite de almacenamiento local alcanzado para mn_models (se mantienen en memoria RAM activa):", err);
+        }
     }, [models]);
 
     useEffect(() => {
-        localStorage.setItem('mn_selected_models', JSON.stringify(selectedModelIds));
+        try {
+            localStorage.setItem('mn_selected_models', JSON.stringify(selectedModelIds));
+        } catch (err) {
+            console.warn("Límite de almacenamiento local alcanzado para mn_selected_models:", err);
+        }
     }, [selectedModelIds]);
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
     const [isUartUnlocked, setIsUartUnlocked] = useState(false);
