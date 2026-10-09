@@ -3200,7 +3200,7 @@ export default function App() {
                                                     </div>
                                                 </div>
                                             ) : predictionResults.length > 0 ? (
-                                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '8px' }}>
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                                                     {predictionResults.map((res: any, idx: number) => {
                                                         const propName = res.property || res.propertyName || 'PARÁMETRO';
                                                         const val = typeof res.value === 'number' ? res.value.toFixed(2) : res.value;
@@ -3212,19 +3212,19 @@ export default function App() {
                                                                 display: 'flex', 
                                                                 flexDirection: 'column',
                                                                 justify: 'space-between', 
-                                                                padding: '8px 10px', 
+                                                                padding: '10px 14px', 
                                                                 background: 'rgba(15, 23, 42, 0.65)', 
                                                                 borderRadius: '8px', 
                                                                 border: isOutlier ? '1px solid rgba(239, 68, 68, 0.35)' : '1px solid rgba(56, 189, 248, 0.18)',
                                                                 boxShadow: '0 2px 6px rgba(0, 0, 0, 0.25)'
                                                             }}>
-                                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '4px', marginBottom: '4px' }}>
-                                                                    <span style={{ fontSize: '0.58rem', color: '#94a3b8', fontWeight: '800', letterSpacing: '0.04em', textTransform: 'uppercase', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                                                                    <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: '800', letterSpacing: '0.04em', textTransform: 'uppercase', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                                                         {propName}
                                                                     </span>
                                                                     <span style={{ 
-                                                                        fontSize: '0.5rem', 
-                                                                        padding: '1px 4px', 
+                                                                        fontSize: '0.62rem', 
+                                                                        padding: '2px 6px', 
                                                                         borderRadius: '4px', 
                                                                         fontWeight: '900',
                                                                         background: isOutlier ? 'rgba(239, 68, 68, 0.2)' : 'rgba(74, 222, 128, 0.12)',
@@ -3236,10 +3236,10 @@ export default function App() {
                                                                     </span>
                                                                 </div>
                                                                 <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
-                                                                    <span style={{ fontSize: '1.2rem', fontWeight: '950', color: '#ffffff', letterSpacing: '-0.02em' }}>
+                                                                    <span style={{ fontSize: '1.5rem', fontWeight: '950', color: '#ffffff', letterSpacing: '-0.02em' }}>
                                                                         {val}
                                                                     </span>
-                                                                    <span style={{ fontSize: '0.65rem', fontWeight: '900', color: '#38bdf8' }}>
+                                                                    <span style={{ fontSize: '0.85rem', fontWeight: '900', color: '#38bdf8' }}>
                                                                         {res.unit || '%'}
                                                                     </span>
                                                                 </div>
@@ -3309,8 +3309,18 @@ export default function App() {
                                                     }}
                                                 >
                                                     <div>
-                                                        <div style={{ fontSize: '0.7rem', color: '#fff', fontWeight: '900' }}>{item.name}</div>
-                                                        <div style={{ fontSize: '0.5rem', color: '#64748b' }}>{new Date(item.time).toLocaleTimeString()}</div>
+                                                        <div style={{ fontSize: '0.75rem', color: '#fff', fontWeight: '900' }}>{item.name}</div>
+                                                        <div style={{ fontSize: '0.62rem', color: '#38bdf8', fontWeight: '700', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                            {item.id && item.id !== 'N/A' && !item.name.startsWith('Ref_') && (
+                                                                <span style={{ fontWeight: '900' }}>
+                                                                    ID: {item.id}
+                                                                </span>
+                                                            )}
+                                                            {item.id && item.id !== 'N/A' && !item.name.startsWith('Ref_') && (
+                                                                <span style={{ opacity: 0.5 }}>•</span>
+                                                            )}
+                                                            <span>{new Date(item.time).toLocaleTimeString()}</span>
+                                                        </div>
                                                     </div>
                                                     {item.prediction !== undefined && (
                                                         <div style={{ fontSize: '0.75rem', fontWeight: '950', color: '#38bdf8' }}>{item.prediction.toFixed(1)}%</div>
@@ -3331,7 +3341,9 @@ export default function App() {
                                                     <Clock size={18} style={{ color: '#fbbf24' }} />
                                                 </div>
                                                 <div>
-                                                    <div style={{ fontSize: '0.8rem', fontWeight: '950', color: '#fff' }}>MODO INSPECCIÓN: ANÁLISIS HISTÓRICO</div>
+                                                    <div style={{ fontSize: '0.8rem', fontWeight: '950', color: '#fff' }}>
+                                                        MODO INSPECCIÓN: {viewedHistoryItem.name} {viewedHistoryItem.id && viewedHistoryItem.id !== 'N/A' && !viewedHistoryItem.name.startsWith('Ref_') ? `(ID: ${viewedHistoryItem.id})` : ''}
+                                                    </div>
                                                     <div style={{ fontSize: '0.6rem', color: '#fbbf24' }}>{new Date(viewedHistoryItem.time).toLocaleString()}</div>
                                                 </div>
                                             </div>
