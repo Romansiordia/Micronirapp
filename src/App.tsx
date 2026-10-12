@@ -2499,7 +2499,7 @@ export default function App() {
             doc.setFontSize(8);
             doc.setTextColor(150);
             doc.text("Nota: Este análisis es una predicción basada en modelos quimiométricos NIR.", 20, finalY);
-            doc.text("Documento generado digitalmente por MicroNIR Setup Tool.", 20, finalY + 5);
+            doc.text("Documento Generado por Spectranir", 20, finalY + 5);
         }
         
         doc.save(`Reporte_NIR_${item.name}_${item.id}.pdf`);
