@@ -530,6 +530,7 @@ class MicroNIRApp {
             // Recopilamos ABSOLUTAMENTE TODOS los servicios UART transparentes posibles + Servicios Viavi
             // Si Chrome no tiene el UUID exacto en optionalServices, bloqueará su visibilidad en getPrimaryServices
             const ALL_POSSIBLE_SERVICES = [
+                '0f45c9b0-5508-11e6-bdf4-0800200c9a66', // MicroNIR Standard UART UUID
                 '0000ff01-0000-1000-8000-00805f9b34fb', // Viavi FF01
                 '0000ffe0-0000-1000-8000-00805f9b34fb', // HM10 UART
                 '49535343-fe7d-4ae5-8fa9-9fafd205e455', // ISSC Microchip UART (Muy probable en JDSU viejos)
@@ -2213,7 +2214,7 @@ export default function App() {
     const [cloudFolders, setCloudFolders] = useState<{name: string, id: string}[]>([]);
     const [selectedFolder, setSelectedFolder] = useState('');
     const [isSyncing, setIsSyncing] = useState(false);
-    const [customUuid, setCustomUuid] = useState(() => localStorage.getItem('mn_custom_uuid') || '');
+    const [customUuid, setCustomUuid] = useState(() => localStorage.getItem('mn_custom_uuid') || '0f45c9b0-5508-11e6-bdf4-0800200c9a66');
     
     // Bias & Slope State
     const [isBiasModalOpen, setIsBiasModalOpen] = useState(false);
